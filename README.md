@@ -27,9 +27,22 @@ Item types: Appliance, Furniture, Electronics, Memorabilia, Media, Collectible, 
 - `GET|POST /rooms/:id/items`, `GET|PUT|DELETE /items/:id`
 - `similar_url` must be http(s). Rooms and homes report purchased and replacement totals.
 - `POST /items/:id/image?kind=photo|similar` with `{data: "<base64 data URL>"}`
-- `POST /identify` → 501 (reserved for photo-to-item via a local Ollama vision model)
+- `POST /identify` with `{data: <image data URL>, provider: "ollama" | "anthropic"}` returns `{name, brand, item_type, description, search_query, provider, model}` for you to review before saving (save with `source: "vision"`)
+- `GET|PUT /settings` (Ollama address and model, Claude model, API key; the key is write-only and never returned), `GET /providers/status`
+
+## Photo identification
+Default: a local vision model through [Ollama](https://ollama.com) (`qwen2.5vl:7b`; use `qwen2.5vl:3b` on small GPUs).
+```bash
+ollama pull qwen2.5vl:7b
+```
+Optional: Claude with your own API key (Settings page). It is off until a key is saved, a photo is sent only when you click
+*Identify with Claude* and confirm, and the key is stored in `data/settings.json` (owner-only permissions) or read from `ANTHROPIC_API_KEY`.
+Environment overrides: `OLLAMA_HOST`, `ANTHROPIC_API_KEY`, `ANTHROPIC_BASE_URL`, `INVENTORY_ALLOWED_HOSTS`.
+
+Security: the API only accepts `Host: localhost|127.0.0.1|[::1]` (blocks DNS rebinding) and requires `Content-Type: application/json`
+on writes (blocks cross-site form posts). Add more hosts with `INVENTORY_ALLOWED_HOSTS` and add authentication before LAN use.
 
 ## Roadmap
-1. Photo-to-item via Ollama (`qwen2.5vl` / `llama3.2-vision`), pre-filling the Add Item form, `source='vision'`.
+1. Compare candidate vision models on your own photos (small bake-off script).
 2. Phone access (PWA over LAN) with auth.
 3. Search/filter, CSV export for insurance, per-home totals report.

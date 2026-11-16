@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """API tests: python3 test_api.py (starts a throwaway server on a free port)."""
 import base64
+import http.client
+import http.server
 import json
 import os
 import tempfile
@@ -16,7 +18,7 @@ PNG = "data:image/png;base64," + base64.b64encode(
     b"\x89PNG\r\n\x1a\n" + b"0" * 20).decode()
 
 
-class ApiTest(unittest.TestCase):
+class ApiBase(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.tmp = tempfile.TemporaryDirectory()
@@ -50,6 +52,9 @@ class ApiTest(unittest.TestCase):
         return self.call("POST", "/api/homes/%d/rooms" % home_id,
                          dict(name=name, **kw), 201)
 
+
+
+class ApiTest(ApiBase):
     def test_meta_and_static(self):
         m = self.call("GET", "/api/meta", expect=200)
         self.assertIn("Appliance", m["item_types"])
@@ -142,7 +147,7 @@ class ApiTest(unittest.TestCase):
         got = self.call("GET", "/api/homes/%d" % h["id"])
         self.assertEqual((got["item_count"], got["total_purchased"],
                           got["total_replacement"]), (2, 15, 25))
-        self.call("POST", "/api/identify", {}, 501)
+        self.call("POST", "/api/identify", {}, 400)
         self.call("GET", "/api/nothing", expect=404)
         self.call("DELETE", "/api/meta", expect=405)
         try:
@@ -233,6 +238,143 @@ class ApiTest(unittest.TestCase):
             self.assertEqual((row["name"], row["price_updated_at"]), ("Old thing", None))
         finally:
             server.DATA_DIR = old
+
+
+class FakeProvider:
+    """Stands in for Ollama or the Anthropic API: records requests, returns canned replies."""
+    def __init__(self):
+        self.requests, self.reply, self.status = [], {}, 200
+        outer = self
+
+        class H(http.server.BaseHTTPRequestHandler):
+            def log_message(self, *a): pass
+            def _send(self, code, obj):
+                raw = json.dumps(obj).encode()
+                self.send_response(code); self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(raw))); self.end_headers(); self.wfile.write(raw)
+            def do_GET(self):
+                outer.requests.append(("GET", self.path, {}, dict(self.headers)))
+                self._send(200, {"models": [{"name": "qwen2.5vl:7b"}]})
+            def do_POST(self):
+                n = int(self.headers.get("Content-Length") or 0)
+                outer.requests.append(("POST", self.path, json.loads(self.rfile.read(n)), dict(self.headers)))
+                self._send(outer.status, outer.reply)
+
+        self.srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), H)
+        self.url = "http://127.0.0.1:%d" % self.srv.server_address[1]
+        threading.Thread(target=self.srv.serve_forever, daemon=True).start()
+
+    def close(self):
+        self.srv.shutdown(); self.srv.server_close()
+
+
+class IdentifyTest(ApiBase):
+    """Photo-to-item against fake Ollama / Claude servers (no real model needed)."""
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.ollama, cls.claude = FakeProvider(), FakeProvider()
+        cls._old_base = server.ANTHROPIC_BASE_URL
+        server.ANTHROPIC_BASE_URL = cls.claude.url
+
+    @classmethod
+    def tearDownClass(cls):
+        server.ANTHROPIC_BASE_URL = cls._old_base
+        cls.ollama.close(); cls.claude.close()
+        super().tearDownClass()
+
+    def setUp(self):
+        self.ollama.requests.clear(); self.claude.requests.clear()
+        self.ollama.status = self.claude.status = 200
+        self.call("PUT", "/api/settings", {"ollama_url": self.ollama.url, "ollama_model": "qwen2.5vl:7b",
+                                           "anthropic_key": "", "anthropic_model": "claude-haiku-5-5"}, 200)
+
+    ITEM = {"name": " Stand Mixer ", "brand": "KitchenAid", "item_type": "appliance",
+            "description": "Red tilt-head mixer.", "search_query": "kitchenaid artisan 5qt red"}
+
+    def test_defaults_and_status(self):
+        st = self.call("GET", "/api/settings", expect=200)
+        self.assertEqual(st["ollama"]["model"], "qwen2.5vl:7b")
+        self.assertEqual(st["anthropic"]["model"], "claude-haiku-5-5")
+        self.assertFalse(st["anthropic"]["configured"])
+        ps = self.call("GET", "/api/providers/status", expect=200)
+        self.assertTrue(ps["ollama"]["reachable"] and ps["ollama"]["model_installed"])
+        self.call("PUT", "/api/settings", {"ollama_model": "other:1b"}, 200)
+        self.assertFalse(self.call("GET", "/api/providers/status")["ollama"]["model_installed"])
+        self.call("PUT", "/api/settings", {"ollama_url": "file:///etc/passwd"}, 400)
+        self.call("PUT", "/api/settings", {"ollama_model": "has space"}, 400)
+
+    def test_ollama_identify(self):
+        self.ollama.reply = {"message": {"content": json.dumps(self.ITEM)}}
+        r = self.call("POST", "/api/identify", {"data": PNG}, 200)
+        self.assertEqual((r["name"], r["item_type"], r["provider"], r["model"]),
+                         ("Stand Mixer", "Appliance", "ollama", "qwen2.5vl:7b"))
+        method, path, body, _ = self.ollama.requests[-1]
+        self.assertEqual(path, "/api/chat")
+        self.assertEqual(body["model"], "qwen2.5vl:7b")
+        self.assertFalse(body["stream"])
+        self.assertEqual(body["options"]["temperature"], 0)
+        self.assertIn("Appliance", body["format"]["properties"]["item_type"]["enum"])
+        self.assertEqual(body["messages"][0]["images"], [PNG.split(",", 1)[1]])
+
+    def test_output_is_normalised(self):
+        self.ollama.reply = {"message": {"content": 'Sure! {"name":"Mug","item_type":"Other","brand":5}'}}
+        r = self.call("POST", "/api/identify", {"data": PNG}, 200)
+        self.assertEqual((r["name"], r["item_type"], r["brand"]), ("Mug", None, ""))
+        self.ollama.reply = {"message": {"content": "no json here"}}
+        self.call("POST", "/api/identify", {"data": PNG}, 502)
+
+    def test_ollama_errors(self):
+        self.ollama.status = 404
+        e = self.call("POST", "/api/identify", {"data": PNG}, 502)
+        self.assertIn("ollama pull qwen2.5vl:7b", e["error"])
+        self.call("PUT", "/api/settings", {"ollama_url": "http://127.0.0.1:9"}, 200)  # nothing listens
+        e = self.call("POST", "/api/identify", {"data": PNG}, 502)
+        self.assertIn("Could not reach Ollama", e["error"])
+
+    def test_claude_byo_key(self):
+        self.call("POST", "/api/identify", {"data": PNG, "provider": "anthropic"}, 400)  # no key yet
+        st = self.call("PUT", "/api/settings", {"anthropic_key": "sk-ant-test-key-1234567890"}, 200)
+        self.assertTrue(st["anthropic"]["configured"])
+        self.assertNotIn("sk-ant", json.dumps(st))                       # key is never returned
+        self.assertNotIn("sk-ant", json.dumps(self.call("GET", "/api/settings")))
+        self.claude.reply = {"content": [{"type": "tool_use", "name": "record_item", "input": self.ITEM}]}
+        r = self.call("POST", "/api/identify", {"data": PNG, "provider": "anthropic"}, 200)
+        self.assertEqual((r["name"], r["provider"], r["model"]), ("Stand Mixer", "anthropic", "claude-haiku-5-5"))
+        method, path, body, headers = self.claude.requests[-1]
+        self.assertEqual(path, "/v1/messages")
+        hdr = {k.lower(): v for k, v in headers.items()}
+        self.assertEqual(hdr["x-api-key"], "sk-ant-test-key-1234567890")
+        self.assertIn("anthropic-version", hdr)
+        self.assertEqual(body["tool_choice"], {"type": "tool", "name": "record_item"})
+        img = body["messages"][0]["content"][0]
+        self.assertEqual((img["type"], img["source"]["media_type"]), ("image", "image/png"))
+        self.assertEqual(self.ollama.requests, [])                      # cloud mode never touches Ollama
+        mode = os.stat(os.path.join(self.tmp.name, "settings.json")).st_mode & 0o777
+        self.assertEqual(mode, 0o600)
+        self.claude.status = 401
+        e = self.call("POST", "/api/identify", {"data": PNG, "provider": "anthropic"}, 502)
+        self.assertIn("rejected the API key", e["error"]); self.assertNotIn("sk-ant", e["error"])
+        self.call("PUT", "/api/settings", {"anthropic_key": ""}, 200)   # clearing removes it
+        self.assertFalse(self.call("GET", "/api/settings")["anthropic"]["configured"])
+        self.call("PUT", "/api/settings", {"anthropic_key": "short"}, 400)
+
+    def test_input_validation(self):
+        self.call("POST", "/api/identify", {"data": "junk"}, 400)
+        self.call("POST", "/api/identify", {"data": PNG, "provider": "bogus"}, 400)
+
+    def test_cross_site_protections(self):
+        port = self.srv.server_address[1]
+        for host, ctype, want in [("evil.example", "application/json", 403),
+                                  ("127.0.0.1:%d" % port, "text/plain", 415),
+                                  ("localhost:%d" % port, "application/json", 200)]:
+            c = http.client.HTTPConnection("127.0.0.1", port)
+            c.putrequest("PUT", "/api/settings", skip_host=True)
+            c.putheader("Host", host); c.putheader("Content-Type", ctype)
+            body = b'{"ollama_model": "qwen2.5vl:7b"}'
+            c.putheader("Content-Length", str(len(body))); c.endheaders(body)
+            self.assertEqual(c.getresponse().status, want, host + " " + ctype)
+            c.close()
 
 
 if __name__ == "__main__":

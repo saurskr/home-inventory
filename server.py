@@ -6,7 +6,10 @@ import json
 import os
 import re
 import sqlite3
+import socket
 import sys
+import urllib.error
+import urllib.request
 import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
@@ -37,6 +40,12 @@ ROOM_TEMPLATES = {
     "Garage": [("Lawn Mower", "Appliance"), ("Workbench", "Furniture"),
                ("Tool Set", "Appliance")],
 }
+
+DEFAULT_OLLAMA_MODEL = "qwen2.5vl:7b"
+DEFAULT_CLAUDE_MODEL = "claude-haiku-5-5"
+ANTHROPIC_BASE_URL = os.environ.get("ANTHROPIC_BASE_URL", "https://api.anthropic.com")
+MAX_CLAUDE_IMAGE = 5 * 1024 * 1024
+ALLOWED_HOSTS = re.compile(r"^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$", re.I)
 
 IMAGE_TYPES = {"image/png": "png", "image/jpeg": "jpg", "image/webp": "webp",
                "image/gif": "gif"}
@@ -506,9 +515,240 @@ def delete_insurance(ctx, home_id):
     return 200, {"deleted": home_id}
 
 
+# ---------- settings (never returns the API key) ----------
+
+def default_ollama_url():
+    u = os.environ.get("OLLAMA_HOST", "http://localhost:11434").strip()
+    return u if re.match(r"^https?://", u, re.I) else "http://" + u
+
+
+def load_settings():
+    try:
+        with open(os.path.join(DATA_DIR, "settings.json")) as fh:
+            raw = json.load(fh)
+    except (OSError, ValueError):
+        raw = {}
+    if not isinstance(raw, dict):
+        raw = {}
+    key = raw.get("anthropic_key") or ""
+    source = "settings" if key else None
+    if not key and os.environ.get("ANTHROPIC_API_KEY"):
+        key, source = os.environ["ANTHROPIC_API_KEY"].strip(), "env"
+    return {"ollama_url": raw.get("ollama_url") or default_ollama_url(),
+            "ollama_model": raw.get("ollama_model") or DEFAULT_OLLAMA_MODEL,
+            "anthropic_model": raw.get("anthropic_model") or DEFAULT_CLAUDE_MODEL,
+            "anthropic_key": key, "key_source": source, "_raw": raw}
+
+
+def save_settings(raw):
+    path = os.path.join(DATA_DIR, "settings.json")
+    tmp = path + ".tmp"
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)  # key file: owner only
+    with os.fdopen(fd, "w") as fh:
+        json.dump(raw, fh)
+    os.replace(tmp, path)
+
+
+def public_settings():
+    c = load_settings()
+    return {"ollama": {"url": c["ollama_url"], "model": c["ollama_model"]},
+            "anthropic": {"configured": bool(c["anthropic_key"]), "key_source": c["key_source"],
+                          "model": c["anthropic_model"]},
+            "defaults": {"ollama_url": default_ollama_url(), "ollama_model": DEFAULT_OLLAMA_MODEL,
+                         "anthropic_model": DEFAULT_CLAUDE_MODEL}}
+
+
+def get_settings(ctx):
+    return 200, public_settings()
+
+
+def put_settings(ctx):
+    b = ctx.body
+    raw = load_settings()["_raw"]
+    if "ollama_url" in b:
+        u = text(b, "ollama_url").rstrip("/")
+        if u and not re.match(r"^https?://[^\s/]+$", u, re.I):
+            raise ApiError(400, "ollama_url must look like http://localhost:11434")
+        raw["ollama_url"] = u
+    for k in ("ollama_model", "anthropic_model"):
+        if k in b:
+            v = text(b, k)
+            if len(v) > 100 or re.search(r"\s", v):
+                raise ApiError(400, "%s is not a valid model name" % k)
+            raw[k] = v
+    if "anthropic_key" in b:
+        v = text(b, "anthropic_key")
+        if v and (len(v) < 20 or re.search(r"\s", v)):
+            raise ApiError(400, "That does not look like an API key")
+        if v:
+            raw["anthropic_key"] = v
+        else:
+            raw.pop("anthropic_key", None)
+    save_settings(raw)
+    return 200, public_settings()
+
+
+# ---------- photo identification (Ollama local, Claude bring-your-own-key) ----------
+
+class ProviderError(Exception):
+    def __init__(self, status, detail="", timeout=False):
+        super().__init__(detail)
+        self.status, self.detail, self.timeout = status, detail, timeout
+
+
+_LOCAL = urllib.request.build_opener(urllib.request.ProxyHandler({}))  # never proxy local calls
+
+
+def http_json(method, url, payload=None, headers=None, timeout=60, local=False):
+    data = json.dumps(payload).encode() if payload is not None else None
+    req = urllib.request.Request(url, data=data, method=method,
+                                 headers=dict({"Content-Type": "application/json"}, **(headers or {})))
+    opener = _LOCAL if local else urllib.request.build_opener()
+    try:
+        with opener.open(req, timeout=timeout) as r:
+            return json.loads(r.read())
+    except urllib.error.HTTPError as e:
+        raise ProviderError(e.code, e.read()[:2000].decode("utf-8", "replace"))
+    except (socket.timeout, TimeoutError):
+        raise ProviderError(None, "timed out", timeout=True)
+    except (urllib.error.URLError, OSError, ValueError) as e:
+        if isinstance(getattr(e, "reason", None), (socket.timeout, TimeoutError)):
+            raise ProviderError(None, "timed out", timeout=True)
+        raise ProviderError(None, str(e))
+
+
+ITEM_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "name": {"type": "string"},
+        "brand": {"type": "string"},
+        "item_type": {"type": "string", "enum": ITEM_TYPES + ["Other"]},
+        "description": {"type": "string"},
+        "search_query": {"type": "string"},
+    },
+    "required": ["name", "brand", "item_type", "description", "search_query"],
+}
+
+PROMPT = (
+    "You are cataloging household belongings for a home inventory. Look at the photo and "
+    "identify the single main item. Answer with the requested fields only.\n"
+    "- name: short common name, e.g. 'Stand Mixer'.\n"
+    "- brand: the manufacturer only if a logo or text shows it or you are certain; otherwise ''.\n"
+    "- item_type: one of " + ", ".join(ITEM_TYPES) + ", or Other.\n"
+    "- description: one factual sentence (colour, material, visible model number). "
+    "Do not guess details you cannot see.\n"
+    "- search_query: a web search query that would find a comparable replacement.")
+
+
+def clean_str(v, limit):
+    return v.strip()[:limit] if isinstance(v, str) else ""
+
+
+def parse_item(content):
+    if isinstance(content, str):
+        try:
+            content = json.loads(content)
+        except ValueError:
+            m = re.search(r"\{.*\}", content, re.S)  # tolerate prose around the JSON
+            try:
+                content = json.loads(m.group(0)) if m else None
+            except ValueError:
+                content = None
+    if not isinstance(content, dict) or not clean_str(content.get("name"), 120):
+        raise ApiError(502, "The model did not return a usable item. Try again or use a clearer photo.")
+    t = clean_str(content.get("item_type"), 40)
+    t = next((x for x in ITEM_TYPES if x.lower() == t.lower()), None)
+    return {"name": clean_str(content["name"], 120), "brand": clean_str(content.get("brand"), 80),
+            "item_type": t, "description": clean_str(content.get("description"), 500),
+            "search_query": clean_str(content.get("search_query"), 200)}
+
+
+def identify_ollama(cfg, b64):
+    model, base = cfg["ollama_model"], cfg["ollama_url"].rstrip("/")
+    try:
+        out = http_json("POST", base + "/api/chat", {
+            "model": model, "stream": False, "format": ITEM_SCHEMA, "options": {"temperature": 0},
+            "messages": [{"role": "user", "content": PROMPT, "images": [b64]}]},
+            timeout=300, local=True)
+    except ProviderError as e:
+        if e.timeout:
+            raise ApiError(502, "Ollama took longer than 5 minutes. Try a smaller model such as qwen2.5vl:3b.")
+        if e.status is None:
+            raise ApiError(502, "Could not reach Ollama at %s. Is it running? Start it with 'ollama serve'." % base)
+        if e.status == 404:
+            raise ApiError(502, "Model '%s' is not installed in Ollama. Run: ollama pull %s" % (model, model))
+        raise ApiError(502, "Ollama returned an error (HTTP %s)." % e.status)
+    return parse_item((out.get("message") or {}).get("content", ""))
+
+
+def identify_claude(cfg, media, b64):
+    model = cfg["anthropic_model"]
+    tool = {"name": "record_item", "description": "Record the identified household item.",
+            "input_schema": ITEM_SCHEMA}
+    try:
+        out = http_json("POST", ANTHROPIC_BASE_URL.rstrip("/") + "/v1/messages", {
+            "model": model, "max_tokens": 700, "tools": [tool],
+            "tool_choice": {"type": "tool", "name": "record_item"},
+            "messages": [{"role": "user", "content": [
+                {"type": "image", "source": {"type": "base64", "media_type": media, "data": b64}},
+                {"type": "text", "text": PROMPT}]}]},
+            headers={"x-api-key": cfg["anthropic_key"], "anthropic-version": "2023-06-01"}, timeout=90)
+    except ProviderError as e:
+        if e.timeout or e.status is None:
+            raise ApiError(502, "Could not reach the Anthropic API. Check your internet connection.")
+        if e.status in (401, 403):
+            raise ApiError(502, "Anthropic rejected the API key. Check it in Settings.")
+        if e.status == 404:
+            raise ApiError(502, "Anthropic does not know the model '%s'. Check the model name in Settings." % model)
+        if e.status == 429:
+            raise ApiError(502, "Anthropic rate limit or spending limit reached. Try again later.")
+        raise ApiError(502, "Anthropic returned an error (HTTP %s)." % e.status)
+    block = next((c for c in out.get("content", []) if c.get("type") == "tool_use"), None)
+    return parse_item(block.get("input") if block else None)
+
+
 def identify(ctx):
-    # Reserved for photo-to-item via a local vision model (Ollama).
-    return 501, {"error": "photo identification is not implemented yet"}
+    b = ctx.body
+    provider = b.get("provider", "ollama")
+    if provider not in ("ollama", "anthropic"):
+        raise ApiError(400, "provider must be ollama or anthropic")
+    m = re.match(r"^data:([\w/+.-]+);base64,(.*)$", b.get("data") or "", re.S)
+    if not m or m.group(1) not in IMAGE_TYPES:
+        raise ApiError(400, "data must be a base64 data URL (png, jpeg, webp, gif)")
+    try:
+        raw = base64.b64decode(m.group(2), validate=True)
+    except ValueError:
+        raise ApiError(400, "invalid base64 data")
+    if not raw:
+        raise ApiError(400, "empty image")
+    cfg = load_settings()
+    if provider == "anthropic":
+        if not cfg["anthropic_key"]:
+            raise ApiError(400, "Claude is not set up. Add your API key in Settings.")
+        if len(raw) > MAX_CLAUDE_IMAGE:
+            raise ApiError(400, "Image is over Claude's 5 MB limit. Use a smaller photo.")
+        result = identify_claude(cfg, m.group(1), m.group(2))
+        result["model"] = cfg["anthropic_model"]
+    else:
+        result = identify_ollama(cfg, m.group(2))
+        result["model"] = cfg["ollama_model"]
+    result["provider"] = provider
+    return 200, result
+
+
+def providers_status(ctx):
+    c = load_settings()
+    st = {"ollama": {"url": c["ollama_url"], "model": c["ollama_model"], "reachable": False,
+                     "model_installed": False, "models": []},
+          "anthropic": {"configured": bool(c["anthropic_key"]), "model": c["anthropic_model"]}}
+    try:
+        tags = http_json("GET", c["ollama_url"].rstrip("/") + "/api/tags", timeout=3, local=True)
+        names = [x.get("name") for x in tags.get("models", []) if isinstance(x, dict)]
+        st["ollama"].update(reachable=True, models=names,
+                            model_installed=c["ollama_model"] in names or c["ollama_model"] + ":latest" in names)
+    except ProviderError:
+        pass
+    return 200, st
 
 
 ID = r"(\d+)"
@@ -534,6 +774,9 @@ ROUTES = [
     ("DELETE", r"/items/%s" % ID, delete_item),
     ("POST", r"/items/%s/image" % ID, upload_image),
     ("POST", r"/identify", identify),
+    ("GET", r"/settings", get_settings),
+    ("PUT", r"/settings", put_settings),
+    ("GET", r"/providers/status", providers_status),
 ]
 ROUTES = [(m, re.compile("^" + p + "$"), fn) for m, p, fn in ROUTES]
 
@@ -572,6 +815,12 @@ class Handler(BaseHTTPRequestHandler):
         return body
 
     def handle_api(self, method, parsed):
+        # Blocks cross-site writes (a page cannot send application/json without a
+        # preflight, which this server never grants).
+        if method in ("POST", "PUT") and int(self.headers.get("Content-Length") or 0) > 0:
+            ctype = (self.headers.get("Content-Type") or "").split(";")[0].strip().lower()
+            if ctype != "application/json":
+                raise ApiError(415, "Content-Type must be application/json")
         path = parsed.path[4:] or "/"
         if len(path) > 1:
             path = path.rstrip("/")
@@ -612,6 +861,10 @@ class Handler(BaseHTTPRequestHandler):
     def dispatch(self, method):
         parsed = urlparse(self.path)
         try:
+            extra = [h.strip().lower() for h in os.environ.get("INVENTORY_ALLOWED_HOSTS", "").split(",") if h.strip()]
+            host = self.headers.get("Host") or ""
+            if not ALLOWED_HOSTS.match(host) and host.rsplit(":", 1)[0].lower() not in extra:
+                raise ApiError(403, "Forbidden host")  # defeats DNS-rebinding attacks
             if parsed.path == "/api" or parsed.path.startswith("/api/"):
                 return self.handle_api(method, parsed)
             if method != "GET":

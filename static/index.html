@@ -248,10 +248,10 @@ const val = (f, n) => f.elements[n].value;
 
 /* ---------- chrome: sidebar nav, title, primary action ---------- */
 const app = $("#app");
-async function buildNav(homeId, roomId) {
+async function buildNav(homeId, roomId, settings = false) {
   const homes = await api("GET", "/homes");
   const rooms = await Promise.all(homes.map(h => api("GET", `/homes/${h.id}/rooms`)));
-  $("#nav").innerHTML = `<a href="#/" ${homeId == null ? 'aria-current="page"' : ""}>All homes</a><hr>` +
+  $("#nav").innerHTML = `<a href="#/" ${homeId == null && !settings ? 'aria-current="page"' : ""}>All homes</a><hr>` +
     homes.map((h, i) => {
       const open = h.id === homeId;
       return `<div class="nav-group"><div class="nav-row">
@@ -260,7 +260,7 @@ async function buildNav(homeId, roomId) {
         <ul class="nav-items" ${open ? "" : "hidden"}>${rooms[i].length ? rooms[i].map(r =>
           `<li><a class="nav-item" href="#/room/${r.id}" ${r.id === roomId ? 'aria-current="true"' : ""}><span class="nm">${esc(r.name)}</span></a></li>`).join("")
           : '<li class="nav-empty">No rooms yet</li>'}</ul></div>`;
-    }).join("");
+    }).join("") + `<hr><a href="#/settings" ${settings ? 'aria-current="page"' : ""}>Settings</a>`;
   $("#nav").querySelectorAll(".nav-toggle").forEach(b => b.onclick = () => {
     const ul = b.closest(".nav-group").querySelector(".nav-items");
     ul.hidden = !ul.hidden; b.setAttribute("aria-expanded", String(!ul.hidden));
@@ -426,6 +426,70 @@ async function roomEditForm(r) {
       toast("Room saved"); route(); });
 }
 
+/* ---------- settings: local model + bring-your-own Claude key ---------- */
+const OLLAMA_MODELS = ["qwen2.5vl:7b", "qwen2.5vl:3b", "gemma3:4b"];
+const CLAUDE_MODELS = ["claude-haiku-5-5", "claude-sonnet-5-5"];
+async function settingsView() {
+  const [cfg, st] = await Promise.all([api("GET", "/settings"), api("GET", "/providers/status")]);
+  await buildNav(null, null, true);
+  chrome("Settings", null);
+  const o = st.ollama;
+  const note = !o.reachable
+    ? `<div class="cov gap"><span aria-hidden="true">⚠</span><div><b>Can't reach Ollama</b> at ${esc(o.url)}. Install it from ollama.com and start it, then reload this page.</div></div>`
+    : !o.model_installed
+    ? `<div class="cov gap"><span aria-hidden="true">⚠</span><div><b>Ollama is running, but ${esc(o.model)} is not installed.</b> Run <code>ollama pull ${esc(o.model)}</code> in a terminal, then reload.</div></div>`
+    : `<div class="cov ok"><span aria-hidden="true">✔</span><div><b>Ready.</b> ${esc(o.model)} is installed and Ollama is reachable.</div></div>`;
+  const c = cfg.anthropic;
+  app.innerHTML = `
+    <section class="panel"><div class="panel-head"><h2>Local model (Ollama)</h2><span class="sub">default · free · photos stay on this computer</span></div>
+      <form class="ins-body" id="setLocal">${note}
+        <div class="ins-grid">
+          <div class="field" style="grid-column:span 2"><label for="s_url">Ollama address</label><input id="s_url" name="ollama_url" value="${esc(cfg.ollama.url)}"></div>
+          <div class="field"><label for="s_model">Vision model</label><input id="s_model" name="ollama_model" list="om" value="${esc(cfg.ollama.model)}">
+            <datalist id="om">${OLLAMA_MODELS.map(m => `<option value="${m}">`).join("")}</datalist></div>
+        </div>
+        <p class="muted" style="margin:0">Use <b>qwen2.5vl:3b</b> if the 7B model is too slow on your graphics card.</p>
+        <div class="err" id="locErr" role="alert"></div>
+        <div class="btns"><button class="primary" type="submit">Save</button></div>
+      </form></section>
+    <section class="panel"><div class="panel-head"><h2>Claude (bring your own key)</h2><span class="sub">optional · paid by you · off until you add a key</span></div>
+      <form class="ins-body" id="setClaude">
+        <div class="cov"><span aria-hidden="true">ℹ</span><div>When you choose <b>Identify with Claude</b> on an item, that one photo is sent to Anthropic's API using your key. Nothing is sent otherwise, and you are asked each time. The key is kept in a file on this computer and is never shown again.</div></div>
+        ${c.configured ? `<div class="cov ok"><span aria-hidden="true">✔</span><div><b>Key saved</b>${c.key_source === "env" ? " (from the ANTHROPIC_API_KEY environment variable)" : ""}.</div></div>` : ""}
+        <div class="ins-grid">
+          <div class="field" style="grid-column:span 2"><label for="s_key">API key</label>
+            <input id="s_key" name="anthropic_key" type="password" autocomplete="off" placeholder="${c.configured ? "Saved. Paste a new key to replace it" : "sk-ant-…"}"></div>
+          <div class="field"><label for="s_cm">Model</label><input id="s_cm" name="anthropic_model" list="cm" value="${esc(c.model)}">
+            <datalist id="cm">${CLAUDE_MODELS.map(m => `<option value="${m}">`).join("")}</datalist></div>
+        </div>
+        <div class="err" id="clErr" role="alert"></div>
+        <div class="btns"><button class="primary" type="submit">Save</button>
+          ${c.configured && c.key_source === "settings" ? '<button class="danger" type="button" id="rmKey">Remove key</button>' : ""}</div>
+      </form></section>`;
+  const save = (formId, errId, fields, msg) => $(formId).onsubmit = async e => {
+    e.preventDefault(); const f = e.target, body = {};
+    for (const k of fields) if (k !== "anthropic_key" || f.elements[k].value.trim()) body[k] = f.elements[k].value;
+    try { await api("PUT", "/settings", body); toast(msg); route(); } catch (err) { $(errId).textContent = err.message; }
+  };
+  save("#setLocal", "#locErr", ["ollama_url", "ollama_model"], "Local model settings saved");
+  save("#setClaude", "#clErr", ["anthropic_key", "anthropic_model"], "Claude settings saved");
+  const rm = $("#rmKey");
+  if (rm) rm.onclick = async () => { if (!confirm("Remove the saved API key?")) return;
+    await api("PUT", "/settings", {anthropic_key: ""}); toast("Key removed"); route(); };
+}
+
+/* shrink a photo before sending it to a model: smaller upload, faster answer */
+const downscale = (url, max = 1024) => new Promise((ok, no) => {
+  const im = new Image();
+  im.onload = () => {
+    const k = Math.min(1, max / Math.max(im.width, im.height)), c = document.createElement("canvas");
+    c.width = Math.round(im.width * k); c.height = Math.round(im.height * k);
+    c.getContext("2d").drawImage(im, 0, 0, c.width, c.height); ok(c.toDataURL("image/jpeg", 0.85));
+  };
+  im.onerror = () => no(new Error("Could not read that image"));
+  im.src = url;
+});
+
 /* ---------- room view: item pane (left, always visible) + list ---------- */
 const sel = {room: null, item: null};
 
@@ -519,8 +583,9 @@ async function roomView(id) {
 }
 
 async function itemForm(room, item) {
-  const rooms = await api("GET", `/homes/${room.home_id}/rooms`);
+  const [rooms, cfg] = await Promise.all([api("GET", `/homes/${room.home_id}/rooms`), api("GET", "/settings")]);
   const imgs = {photo: null, similar: null};
+  let identified = false;
   const img = (kind, label, cur) => `<div class="field"><label for="f_img_${kind}">${label}</label>
     <input id="f_img_${kind}" type="file" accept="image/*" data-kind="${kind}">
     <img class="preview" data-prev="${kind}" ${cur ? `src="/images/${esc(cur)}"` : "hidden"} alt=""></div>`;
@@ -531,13 +596,20 @@ async function itemForm(room, item) {
     `<div class="two">${field("purchased_value", "Purchased value ($)", item?.purchased_value ?? "", 'type="number" min="0" step="0.01"')}
       ${field("replacement_value", "Replacement value ($)", item?.replacement_value ?? "", 'type="number" min="0" step="0.01" placeholder="defaults to purchased"')}</div>` +
     field("similar_url", "Link to a similar item", item?.similar_url, 'type="url" placeholder="https://"') +
-    img("photo", "Photo", item?.image) + img("similar", "Image of similar item", item?.similar_image) +
+    img("photo", "Photo", item?.image) +
+    `<div class="field" id="idBlock"><div class="btns">
+       <button type="button" class="small" id="idLocal">Identify with ${esc(cfg.ollama.model)}</button>
+       ${cfg.anthropic.configured ? '<button type="button" class="small" id="idCloud">Identify with Claude…</button>'
+         : '<span class="sub">Want Claude instead? <a href="#/settings" onclick="$(\'#dlg\').close()">Add your key in Settings</a></span>'}</div>
+       <div class="sub" id="idMsg" role="status">Choose a photo, then let a model fill in the name, brand and type. You review before saving.</div>
+       <a id="idSearch" class="sub" target="_blank" rel="noopener noreferrer" hidden>Search for an equivalent item ↗</a></div>` +
+    img("similar", "Image of similar item", item?.similar_image) +
     (item ? select("room_id", "Room", rooms.map(r => [r.id, r.name]), item.room_id) : ""),
     async f => {
       const b = {name: val(f, "name"), brand: val(f, "brand"), item_type: val(f, "item_type"),
         description: val(f, "description"), similar_url: val(f, "similar_url"),
         purchased_value: val(f, "purchased_value"), replacement_value: val(f, "replacement_value")};
-      if (item) b.room_id = +val(f, "room_id");
+      if (item) b.room_id = +val(f, "room_id"); else if (identified) b.source = "vision";
       const saved = item ? await api("PUT", "/items/" + item.id, b) : await api("POST", `/rooms/${room.id}/items`, b);
       for (const k of ["photo", "similar"])
         if (imgs[k]) await api("POST", `/items/${saved.id}/image?kind=${k}`, {data: imgs[k]});
@@ -549,6 +621,33 @@ async function itemForm(room, item) {
     const url = await readFile(f); imgs[inp.dataset.kind] = url;
     const p = $(`[data-prev=${inp.dataset.kind}]`, d); p.src = url; p.hidden = false;
   });
+  const photoData = async () => {
+    if (imgs.photo) return imgs.photo;
+    const chosen = d.querySelector('input[data-kind="photo"]').files[0];
+    if (chosen) return readFile(chosen);  // chosen but still being read
+    if (item?.image) return readFile(await (await fetch("/images/" + item.image)).blob());
+    return null;
+  };
+  async function runId(provider) {
+    const msg = $("#idMsg", d), btns = d.querySelectorAll("#idBlock button");
+    const photo = await photoData();
+    if (!photo) { msg.textContent = "Choose a photo first."; return; }
+    if (provider === "anthropic" && !confirm("This sends the photo to Anthropic's Claude API using your own API key. Continue?")) return;
+    btns.forEach(x => x.disabled = true);
+    msg.textContent = provider === "ollama" ? "Identifying with the local model… this can take up to a minute." : "Asking Claude…";
+    try {
+      const r = await api("POST", "/identify", {data: await downscale(photo), provider});
+      const set = (n, v) => { if (v) d.querySelector("#f_" + n).value = v; };
+      set("name", r.name); set("brand", r.brand); set("item_type", r.item_type); set("description", r.description);
+      identified = true;
+      msg.textContent = `Filled in by ${r.model}. Check it before saving.`;
+      const a = $("#idSearch", d);
+      if (r.search_query) { a.href = "https://duckduckgo.com/?q=" + encodeURIComponent(r.search_query); a.hidden = false; }
+    } catch (err) { msg.textContent = err.message; }
+    finally { btns.forEach(x => x.disabled = false); }
+  }
+  $("#idLocal", d).onclick = () => runId("ollama");
+  const cl = $("#idCloud", d); if (cl) cl.onclick = () => runId("anthropic");
   if (item) {
     const del = document.createElement("button");
     del.type = "button"; del.className = "danger"; del.textContent = "Delete";
@@ -564,6 +663,7 @@ async function route() {
   try {
     if (kind === "home") await homeView(+id);
     else if (kind === "room") await roomView(+id);
+    else if (kind === "settings") await settingsView();
     else await homesView();
   } catch (e) {
     chrome("Not found", null);
