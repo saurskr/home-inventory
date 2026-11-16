@@ -22,6 +22,27 @@ ITEM_TYPES = ["Appliance", "Furniture", "Electronics", "Memorabilia",
               "Media", "Collectible", "Clothing"]
 SOURCES = ["manual", "template", "vision"]
 
+US_STATES = [
+    ("AL", "Alabama"), ("AK", "Alaska"), ("AZ", "Arizona"), ("AR", "Arkansas"),
+    ("CA", "California"), ("CO", "Colorado"), ("CT", "Connecticut"), ("DE", "Delaware"),
+    ("DC", "District of Columbia"), ("FL", "Florida"), ("GA", "Georgia"), ("HI", "Hawaii"),
+    ("ID", "Idaho"), ("IL", "Illinois"), ("IN", "Indiana"), ("IA", "Iowa"),
+    ("KS", "Kansas"), ("KY", "Kentucky"), ("LA", "Louisiana"), ("ME", "Maine"),
+    ("MD", "Maryland"), ("MA", "Massachusetts"), ("MI", "Michigan"), ("MN", "Minnesota"),
+    ("MS", "Mississippi"), ("MO", "Missouri"), ("MT", "Montana"), ("NE", "Nebraska"),
+    ("NV", "Nevada"), ("NH", "New Hampshire"), ("NJ", "New Jersey"), ("NM", "New Mexico"),
+    ("NY", "New York"), ("NC", "North Carolina"), ("ND", "North Dakota"), ("OH", "Ohio"),
+    ("OK", "Oklahoma"), ("OR", "Oregon"), ("PA", "Pennsylvania"), ("RI", "Rhode Island"),
+    ("SC", "South Carolina"), ("SD", "South Dakota"), ("TN", "Tennessee"), ("TX", "Texas"),
+    ("UT", "Utah"), ("VT", "Vermont"), ("VA", "Virginia"), ("WA", "Washington"),
+    ("WV", "West Virginia"), ("WI", "Wisconsin"), ("WY", "Wyoming"),
+    ("AS", "American Samoa"), ("GU", "Guam"), ("MP", "Northern Mariana Islands"),
+    ("PR", "Puerto Rico"), ("VI", "U.S. Virgin Islands"),
+    ("AA", "Armed Forces Americas"), ("AE", "Armed Forces Europe"), ("AP", "Armed Forces Pacific"),
+]
+STATE_CODES = {c for c, _ in US_STATES}
+ADDRESS_FIELDS = ("street", "street2", "city", "state", "zip")
+
 # Room name -> [(item name, item_type)]
 ROOM_TEMPLATES = {
     "Kitchen": [("Toaster", "Appliance"), ("Microwave", "Appliance"),
@@ -55,7 +76,12 @@ SCHEMA = """
 CREATE TABLE IF NOT EXISTS homes (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   name TEXT NOT NULL,
-  address TEXT
+  address TEXT,
+  street TEXT NOT NULL DEFAULT '',
+  street2 TEXT NOT NULL DEFAULT '',
+  city TEXT NOT NULL DEFAULT '',
+  state TEXT NOT NULL DEFAULT '',
+  zip TEXT NOT NULL DEFAULT ''
 );
 CREATE TABLE IF NOT EXISTS rooms (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -124,6 +150,10 @@ def init_storage():
     cols = [r["name"] for r in conn.execute("PRAGMA table_info(items)")]
     if "price_updated_at" not in cols:  # databases created before this column existed
         conn.execute("ALTER TABLE items ADD COLUMN price_updated_at TEXT")
+    hcols = [r["name"] for r in conn.execute("PRAGMA table_info(homes)")]
+    for col in ADDRESS_FIELDS:  # homes created before structured US addresses
+        if col not in hcols:
+            conn.execute("ALTER TABLE homes ADD COLUMN %s TEXT NOT NULL DEFAULT ''" % col)
     conn.commit()
     conn.close()
 
@@ -215,6 +245,7 @@ def get_or_404(conn, table, id_):
 
 def meta(ctx):
     return 200, {"item_types": ITEM_TYPES, "sources": SOURCES,
+                 "us_states": [{"code": c, "name": n} for c, n in US_STATES],
                  "room_templates": {k: [{"name": n, "item_type": t} for n, t in v]
                                     for k, v in ROOM_TEMPLATES.items()}}
 
@@ -242,32 +273,77 @@ FROM rooms r
 """
 
 
+def format_address(h):
+    """US mailing style on one line: '123 Main St, Apt 4, Springfield, IL 62704'."""
+    line1 = ", ".join(x for x in (h.get("street"), h.get("street2")) if x)
+    state_zip = " ".join(x for x in (h.get("state"), h.get("zip")) if x)
+    line2 = ", ".join(x for x in (h.get("city"), state_zip) if x)
+    return ", ".join(x for x in (line1, line2) if x)
+
+
+def home_out(h):
+    structured = format_address(h)
+    legacy = h.get("address") or ""
+    h["legacy_address"] = "" if structured else legacy  # free-text address from before US fields
+    h["address"] = structured or legacy
+    return h
+
+
+def address_values(b, cur):
+    out = {k: cur.get(k) or "" for k in ADDRESS_FIELDS}
+    for k in ("street", "street2", "city"):
+        if k in b:
+            v = text(b, k)
+            if len(v) > 120:
+                raise ApiError(400, "%s is too long" % k)
+            out[k] = v
+    if "state" in b:
+        v = text(b, "state").upper()
+        if v and v not in STATE_CODES:
+            raise ApiError(400, "state must be a 2-letter US state or territory code")
+        out["state"] = v
+    if "zip" in b:
+        v = text(b, "zip")
+        if v and not re.match(r"^\d{5}(-?\d{4})?$", v):
+            raise ApiError(400, "zip must be 12345 or 12345-6789")
+        out["zip"] = v[:5] + "-" + v[5:] if re.match(r"^\d{9}$", v) else v
+    return out
+
+
 def list_homes(ctx):
-    return 200, rows(ctx.db.execute(HOME_SUMMARY + " ORDER BY h.name COLLATE NOCASE"))
+    return 200, [home_out(r) for r in rows(ctx.db.execute(HOME_SUMMARY + " ORDER BY h.name COLLATE NOCASE"))]
 
 
 def create_home(ctx):
     b = ctx.body
-    cur = ctx.db.execute("INSERT INTO homes (name, address) VALUES (?, ?)",
-                         (text(b, "name", True), text(b, "address")))
+    name = text(b, "name", True)
+    a = address_values(b, {})
+    legacy = "" if format_address(a) else text(b, "address")
+    cur = ctx.db.execute(
+        "INSERT INTO homes (name, address, street, street2, city, state, zip) VALUES (?,?,?,?,?,?,?)",
+        (name, legacy, a["street"], a["street2"], a["city"], a["state"], a["zip"]))
     ctx.db.commit()
-    return 201, one(ctx.db, HOME_SUMMARY + " WHERE h.id = ?", (cur.lastrowid,))
+    return 201, home_out(one(ctx.db, HOME_SUMMARY + " WHERE h.id = ?", (cur.lastrowid,)))
 
 
 def get_home(ctx, id_):
     r = one(ctx.db, HOME_SUMMARY + " WHERE h.id = ?", (id_,))
     if not r:
         raise ApiError(404, "home not found")
-    return 200, r
+    return 200, home_out(r)
 
 
 def update_home(ctx, id_):
     cur = get_or_404(ctx.db, "homes", id_)
     b = ctx.body
     name = text(b, "name", True) if "name" in b else cur["name"]
-    address = text(b, "address") if "address" in b else cur["address"]
-    ctx.db.execute("UPDATE homes SET name = ?, address = ? WHERE id = ?",
-                   (name, address, id_))
+    a = address_values(b, cur)
+    legacy = text(b, "address") if "address" in b else (cur["address"] or "")
+    if format_address(a):
+        legacy = ""  # a structured address replaces the old free-text one
+    ctx.db.execute(
+        "UPDATE homes SET name=?, address=?, street=?, street2=?, city=?, state=?, zip=? WHERE id=?",
+        (name, legacy, a["street"], a["street2"], a["city"], a["state"], a["zip"], id_))
     ctx.db.commit()
     return get_home(ctx, id_)
 

@@ -215,6 +215,31 @@ class ApiTest(ApiBase):
         self.call("DELETE", "/api/homes/%d" % h["id"], expect=200)
         self.call("GET", path, expect=404)
 
+    def test_us_address(self):
+        m = self.call("GET", "/api/meta")
+        codes = [x["code"] for x in m["us_states"]]
+        self.assertIn("CA", codes); self.assertIn("DC", codes); self.assertGreaterEqual(len(codes), 51)
+        h = self.call("POST", "/api/homes", {"name": "Main", "street": "123 Main St", "street2": "Apt 4",
+                                             "city": "Springfield", "state": "il", "zip": "627041234"}, 201)
+        self.assertEqual((h["state"], h["zip"]), ("IL", "62704-1234"))
+        self.assertEqual(h["address"], "123 Main St, Apt 4, Springfield, IL 62704-1234")
+        self.assertEqual(h["legacy_address"], "")
+        for bad in ({"state": "ZZ"}, {"state": "Illinois"}, {"zip": "6270"}, {"zip": "ABCDE"}, {"street": "x" * 200}):
+            self.call("PUT", "/api/homes/%d" % h["id"], bad, 400)
+        got = self.call("PUT", "/api/homes/%d" % h["id"], {"street2": "", "zip": "62704"}, 200)  # merges
+        self.assertEqual(got["address"], "123 Main St, Springfield, IL 62704")
+        part = self.call("POST", "/api/homes", {"name": "Lot", "city": "Austin", "state": "TX"}, 201)
+        self.assertEqual(part["address"], "Austin, TX")
+
+    def test_legacy_free_text_address(self):
+        h = self.call("POST", "/api/homes", {"name": "Old", "address": "1 Shore Rd, somewhere"}, 201)
+        self.assertEqual((h["address"], h["legacy_address"]), ("1 Shore Rd, somewhere", "1 Shore Rd, somewhere"))
+        got = self.call("PUT", "/api/homes/%d" % h["id"], {"name": "Old 2"}, 200)  # untouched by other edits
+        self.assertEqual(got["address"], "1 Shore Rd, somewhere")
+        got = self.call("PUT", "/api/homes/%d" % h["id"], {"street": "9 Elm St", "city": "Reno",
+                                                           "state": "NV", "zip": "89501"}, 200)
+        self.assertEqual((got["address"], got["legacy_address"]), ("9 Elm St, Reno, NV 89501", ""))
+
     def test_migrates_old_database(self):
         import sqlite3
         d = tempfile.mkdtemp()
@@ -225,7 +250,7 @@ class ApiTest(ApiBase):
             description TEXT NOT NULL DEFAULT '', brand TEXT NOT NULL DEFAULT '', purchased_value REAL NOT NULL DEFAULT 0,
             replacement_value REAL NOT NULL DEFAULT 0, similar_url TEXT NOT NULL DEFAULT '', item_type TEXT, image TEXT,
             similar_image TEXT, source TEXT NOT NULL DEFAULT 'manual');
-          INSERT INTO homes (name) VALUES ('Old'); INSERT INTO rooms (home_id, name) VALUES (1, 'R');
+          INSERT INTO homes (name, address) VALUES ('Old', '5 Pine Ct'); INSERT INTO rooms (home_id, name) VALUES (1, 'R');
           INSERT INTO items (room_id, name) VALUES (1, 'Old thing');""")
         c.commit(); c.close()
         old = server.DATA_DIR
@@ -236,6 +261,11 @@ class ApiTest(ApiBase):
             row = conn.execute("SELECT name, price_updated_at FROM items").fetchone()
             conn.close()
             self.assertEqual((row["name"], row["price_updated_at"]), ("Old thing", None))
+            conn = server.connect()
+            home = dict(conn.execute("SELECT * FROM homes").fetchone())
+            conn.close()
+            self.assertEqual((home["address"], home["street"], home["zip"]), ("5 Pine Ct", "", ""))
+            self.assertEqual(server.home_out(home)["address"], "5 Pine Ct")
         finally:
             server.DATA_DIR = old
 

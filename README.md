@@ -20,7 +20,7 @@ Item types: Appliance, Furniture, Electronics, Memorabilia, Media, Collectible, 
 
 ## API (JSON under /api)
 - `GET /meta`
-- `GET|POST /homes`, `GET|PUT|DELETE /homes/:id`
+- `GET|POST /homes`, `GET|PUT|DELETE /homes/:id` Homes take a US address: `street`, `street2`, `city`, `state` (2-letter code, see `us_states` in `GET /meta`), `zip` (12345 or 12345-6789); responses include a formatted `address`. Older free-text addresses still display until replaced.
 - `GET|POST /homes/:id/rooms` (POST `prefill: true` creates template items; room name picks the template)
 - `GET|PUT|DELETE /homes/:id/insurance` (optional per-home policy: insurer, policy number, dwelling and contents coverage, deductible, premium, renewal date, contact, notes; PUT merges the fields you send)
 - `GET|PUT|DELETE /rooms/:id` (PUT with `home_id` moves the room and its items)

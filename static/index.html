@@ -37,6 +37,7 @@ dialog.modal::backdrop{background:rgba(10,14,20,.4)}
 dialog.modal h3{margin:0 0 6px}
 dialog.modal .field{margin-top:10px}
 .two{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.addr3{display:grid;grid-template-columns:minmax(0,1fr) 110px 120px;gap:10px}
 .err{color:var(--red);min-height:1.2em;margin-top:8px}
 .dlg-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:16px}
 .toast{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);background:var(--head);color:var(--head-text);
@@ -106,7 +107,7 @@ html[data-density="compact"] td .btns button{padding:0 8px}
 .cov.gap{border-color:var(--amber)}
 .cov b{white-space:nowrap}
 @media(max-width:1000px){.split{grid-template-columns:1fr}.pane{position:static}.ins-grid{grid-template-columns:1fr 1fr}}
-@media(max-width:560px){.two,.ins-grid{grid-template-columns:1fr}.top{padding:10px 14px}main{padding:12px 14px 50px}}
+@media(max-width:560px){.two,.ins-grid,.addr3{grid-template-columns:1fr}.top{padding:10px 14px}main{padding:12px 14px 50px}}
 </style>
 </head>
 <body>
@@ -297,10 +298,20 @@ async function homesView() {
   });
 }
 function homeForm(h) {
+  const states = (META.us_states || []).map(x => [x.code, `${x.code} · ${x.name}`]);
   form(h ? "Edit home" : "Add home",
-    field("name", "Name", h?.name, "required") + field("address", "Address (optional)", h?.address),
-    async f => { const b = {name: val(f, "name"), address: val(f, "address")};
-      h ? await api("PUT", "/homes/" + h.id, b) : await api("POST", "/homes", b); route(); });
+    field("name", "Home name", h?.name, 'required placeholder="e.g. Main House"') +
+    (h?.legacy_address ? `<p class="sub" style="margin:8px 0 0">Previously saved address: <b>${esc(h.legacy_address)}</b>. Fill in the fields below to replace it.</p>` : "") +
+    field("street", "Street address", h?.street, 'autocomplete="address-line1" placeholder="123 Main St"') +
+    field("street2", "Apt, suite, unit (optional)", h?.street2, 'autocomplete="address-line2"') +
+    `<div class="addr3">${field("city", "City", h?.city, 'autocomplete="address-level2"')}` +
+    `${select("state", "State", states, h?.state, "—")}` +
+    `${field("zip", "ZIP code", h?.zip, 'inputmode="numeric" autocomplete="postal-code" pattern="\\d{5}(-?\\d{4})?" maxlength="10" placeholder="12345" title="5 digits, or ZIP+4 like 12345-6789"')}</div>`,
+    async f => {
+      const b = {name: val(f, "name")};
+      for (const k of ["street", "street2", "city", "state", "zip"]) b[k] = val(f, k);
+      h ? await api("PUT", "/homes/" + h.id, b) : await api("POST", "/homes", b); route();
+    });
 }
 
 async function homeView(id) {
