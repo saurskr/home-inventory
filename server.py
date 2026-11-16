@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Home Inventory: local-first API + static UI. Standard library only."""
 import base64
+import datetime
 import json
 import os
 import re
@@ -66,7 +67,21 @@ CREATE TABLE IF NOT EXISTS items (
   item_type TEXT,
   image TEXT,
   similar_image TEXT,
+  price_updated_at TEXT,
   source TEXT NOT NULL DEFAULT 'manual'
+);
+CREATE TABLE IF NOT EXISTS home_insurance (
+  home_id INTEGER PRIMARY KEY REFERENCES homes(id) ON DELETE CASCADE,
+  insurer TEXT NOT NULL DEFAULT '',
+  policy_number TEXT NOT NULL DEFAULT '',
+  dwelling_coverage REAL,
+  contents_coverage REAL,
+  deductible REAL,
+  annual_premium REAL,
+  renewal_date TEXT NOT NULL DEFAULT '',
+  contact TEXT NOT NULL DEFAULT '',
+  notes TEXT NOT NULL DEFAULT '',
+  updated_at TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_rooms_home ON rooms(home_id);
 CREATE INDEX IF NOT EXISTS idx_items_room ON items(room_id);
@@ -97,8 +112,15 @@ def init_storage():
     os.makedirs(images_dir(), exist_ok=True)
     conn = connect()
     conn.executescript(SCHEMA)
+    cols = [r["name"] for r in conn.execute("PRAGMA table_info(items)")]
+    if "price_updated_at" not in cols:  # databases created before this column existed
+        conn.execute("ALTER TABLE items ADD COLUMN price_updated_at TEXT")
     conn.commit()
     conn.close()
+
+
+def now():
+    return datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def rows(cur):
@@ -158,6 +180,13 @@ def money(body, key):
     return round(f, 2)
 
 
+def url_field(body, key):
+    v = text(body, key)
+    if v and not re.match(r"^https?://\S+$", v, re.I):
+        raise ApiError(400, "%s must start with http:// or https://" % key)
+    return v
+
+
 def check_type(v):
     if v in (None, ""):
         return None
@@ -196,6 +225,8 @@ FROM homes h
 ROOM_SUMMARY = """
 SELECT r.*,
   (SELECT COUNT(*) FROM items i WHERE i.room_id = r.id) AS item_count,
+  (SELECT COALESCE(SUM(i.purchased_value), 0) FROM items i
+     WHERE i.room_id = r.id) AS total_purchased,
   (SELECT COALESCE(SUM(i.replacement_value), 0) FROM items i
      WHERE i.room_id = r.id) AS total_replacement
 FROM rooms r
@@ -308,6 +339,8 @@ def delete_room(ctx, id_):
 def insert_item(conn, room_id, b, source="manual"):
     purchased = money(b, "purchased_value")
     replacement = money(b, "replacement_value")
+    # An explicitly entered replacement price counts as a price update.
+    stamp = now() if (replacement is not None or b.get("price_confirmed") is True) else None
     purchased = purchased if purchased is not None else 0
     replacement = replacement if replacement is not None else purchased
     src = b.get("source", source)
@@ -315,11 +348,11 @@ def insert_item(conn, room_id, b, source="manual"):
         raise ApiError(400, "source must be one of: " + ", ".join(SOURCES))
     cur = conn.execute(
         """INSERT INTO items (room_id, name, description, brand, purchased_value,
-           replacement_value, similar_url, item_type, source)
-           VALUES (?,?,?,?,?,?,?,?,?)""",
+           replacement_value, similar_url, item_type, source, price_updated_at)
+           VALUES (?,?,?,?,?,?,?,?,?,?)""",
         (room_id, text(b, "name", True), text(b, "description"), text(b, "brand"),
-         purchased, replacement, text(b, "similar_url"),
-         check_type(b.get("item_type")), src))
+         purchased, replacement, url_field(b, "similar_url"),
+         check_type(b.get("item_type")), src, stamp))
     conn.execute("UPDATE items SET inv_no = ? WHERE id = ?",
                  ("INV-%06d" % cur.lastrowid, cur.lastrowid))
     return cur.lastrowid
@@ -350,9 +383,11 @@ def update_item(ctx, id_):
     for k in ("name",):
         if k in b:
             f[k] = text(b, k, True)
-    for k in ("description", "brand", "similar_url"):
+    for k in ("description", "brand"):
         if k in b:
             f[k] = text(b, k)
+    if "similar_url" in b:
+        f["similar_url"] = url_field(b, "similar_url")
     if "item_type" in b:
         f["item_type"] = check_type(b["item_type"])
     if "purchased_value" in b:
@@ -360,7 +395,12 @@ def update_item(ctx, id_):
         f["purchased_value"] = v if v is not None else 0
     if "replacement_value" in b:
         v = money(b, "replacement_value")
-        f["replacement_value"] = v if v is not None else f["purchased_value"]
+        new = v if v is not None else f["purchased_value"]
+        if new != cur["replacement_value"]:
+            f["price_updated_at"] = now()
+        f["replacement_value"] = new
+    if b.get("price_confirmed") is True:
+        f["price_updated_at"] = now()
     if "source" in b:
         if b["source"] not in SOURCES:
             raise ApiError(400, "invalid source")
@@ -372,11 +412,11 @@ def update_item(ctx, id_):
         f["room_id"] = b["room_id"]
     ctx.db.execute(
         """UPDATE items SET name=?, description=?, brand=?, purchased_value=?,
-           replacement_value=?, similar_url=?, item_type=?, source=?, room_id=?
-           WHERE id=?""",
+           replacement_value=?, similar_url=?, item_type=?, source=?, room_id=?,
+           price_updated_at=? WHERE id=?""",
         (f["name"], f["description"], f["brand"], f["purchased_value"],
          f["replacement_value"], f["similar_url"], f["item_type"], f["source"],
-         f["room_id"], id_))
+         f["room_id"], f["price_updated_at"], id_))
     ctx.db.commit()
     return 200, get_or_404(ctx.db, "items", id_)
 
@@ -414,6 +454,58 @@ def upload_image(ctx, id_):
     return 200, get_or_404(ctx.db, "items", id_)
 
 
+INS_TEXT = ["insurer", "policy_number", "contact", "notes"]
+INS_MONEY = ["dwelling_coverage", "contents_coverage", "deductible", "annual_premium"]
+INS_DEFAULTS = dict({k: "" for k in INS_TEXT}, renewal_date="",
+                    **{k: None for k in INS_MONEY})
+
+
+def get_insurance(ctx, home_id):
+    get_or_404(ctx.db, "homes", home_id)
+    r = one(ctx.db, "SELECT * FROM home_insurance WHERE home_id = ?", (home_id,))
+    if not r:
+        return 200, dict(INS_DEFAULTS, home_id=home_id, configured=False, updated_at=None)
+    r["configured"] = True
+    return 200, r
+
+
+def put_insurance(ctx, home_id):
+    get_or_404(ctx.db, "homes", home_id)
+    b = ctx.body
+    cur = one(ctx.db, "SELECT * FROM home_insurance WHERE home_id = ?", (home_id,)) \
+        or dict(INS_DEFAULTS)
+    for k in INS_TEXT:
+        if k in b:
+            cur[k] = text(b, k)
+    for k in INS_MONEY:
+        if k in b:
+            cur[k] = money(b, k)
+    if "renewal_date" in b:
+        d = text(b, "renewal_date")
+        if d:
+            try:
+                datetime.datetime.strptime(d, "%Y-%m-%d")
+            except ValueError:
+                raise ApiError(400, "renewal_date must be YYYY-MM-DD")
+        cur["renewal_date"] = d
+    ctx.db.execute(
+        """INSERT OR REPLACE INTO home_insurance (home_id, insurer, policy_number,
+           dwelling_coverage, contents_coverage, deductible, annual_premium,
+           renewal_date, contact, notes, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+        (home_id, cur["insurer"], cur["policy_number"], cur["dwelling_coverage"],
+         cur["contents_coverage"], cur["deductible"], cur["annual_premium"],
+         cur["renewal_date"], cur["contact"], cur["notes"], now()))
+    ctx.db.commit()
+    return get_insurance(ctx, home_id)
+
+
+def delete_insurance(ctx, home_id):
+    get_or_404(ctx.db, "homes", home_id)
+    ctx.db.execute("DELETE FROM home_insurance WHERE home_id = ?", (home_id,))
+    ctx.db.commit()
+    return 200, {"deleted": home_id}
+
+
 def identify(ctx):
     # Reserved for photo-to-item via a local vision model (Ollama).
     return 501, {"error": "photo identification is not implemented yet"}
@@ -429,6 +521,9 @@ ROUTES = [
     ("DELETE", r"/homes/%s" % ID, delete_home),
     ("GET", r"/homes/%s/rooms" % ID, list_rooms),
     ("POST", r"/homes/%s/rooms" % ID, create_room),
+    ("GET", r"/homes/%s/insurance" % ID, get_insurance),
+    ("PUT", r"/homes/%s/insurance" % ID, put_insurance),
+    ("DELETE", r"/homes/%s/insurance" % ID, delete_insurance),
     ("GET", r"/rooms/%s" % ID, get_room),
     ("PUT", r"/rooms/%s" % ID, update_room),
     ("DELETE", r"/rooms/%s" % ID, delete_room),

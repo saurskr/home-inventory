@@ -23,7 +23,7 @@
 .btns{display:flex;gap:8px;flex-wrap:wrap}
 button.small{padding:2px 10px;font-size:12px}
 table{width:100%;border-collapse:collapse}
-th,td{text-align:left;padding:8px 14px;border-bottom:1px solid var(--line);vertical-align:middle}
+th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:middle}
 tbody tr:last-child td{border-bottom:0}
 th{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:600;background:var(--surface-2)}
 .num{text-align:right;font-variant-numeric:tabular-nums}
@@ -43,7 +43,70 @@ dialog.modal .field{margin-top:10px}
   padding:8px 16px;border-radius:999px;opacity:0;transition:opacity .2s;pointer-events:none;z-index:60}
 .toast.show{opacity:1}
 .top h1{font-size:18px}
-@media(max-width:560px){.two{grid-template-columns:1fr}.top{padding:10px 14px}main{padding:12px 14px 50px}}
+/* density toggle */
+.seg{display:inline-flex}
+.seg button{border-radius:0;padding:4px 10px;font-size:12px}
+.seg button:first-child{border-radius:var(--r-sm) 0 0 var(--r-sm)}
+.seg button:last-child{border-radius:0 var(--r-sm) var(--r-sm) 0;border-left:0}
+.seg button[aria-pressed="true"]{background:var(--accent);color:var(--accent-text);border-color:var(--accent)}
+/* two-pane room layout: item pane on the left, list on the right */
+.split{display:grid;grid-template-columns:300px minmax(0,1fr);gap:16px;align-items:start}
+.pane{position:sticky;top:72px}
+.pane-body{padding:14px;display:flex;flex-direction:column;gap:12px}
+.pane h3{margin:0;font-size:16px}
+.pane h4{margin:0 0 6px;font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+.ph{display:block;width:100%;aspect-ratio:4/3;object-fit:cover;border-radius:var(--r-sm);border:1px solid var(--line);background:var(--surface-2)}
+.ph.sm{aspect-ratio:16/9}
+.ph-empty{display:grid;place-items:center;height:84px;border:1px dashed var(--line);border-radius:var(--r-sm);color:var(--muted);font-size:13px}
+.ph-empty.sm{height:64px}
+.pane dl{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;margin:0;font-size:13px}
+.pane dt{color:var(--muted)}
+.pane dd{margin:0;text-align:right;font-variant-numeric:tabular-nums}
+.pane .desc{font-size:13px;color:var(--muted);white-space:pre-wrap}
+.pane .links a{word-break:break-all}
+.flags{display:flex;flex-direction:column;gap:4px;font-size:13px}
+.flags div{display:flex;gap:8px;align-items:center}
+/* status icons: photo / equivalent link / price */
+.ico{display:inline-flex;gap:5px;align-items:center}
+.ic{display:inline-flex}
+.ic svg{width:16px;height:16px;display:block;fill:none;stroke:currentColor;stroke-width:1.3;stroke-linecap:round;stroke-linejoin:round}
+.ic.yes,.ic.current{color:var(--green)}
+.ic.stale{color:var(--amber)}
+.ic.no,.ic.none{color:var(--grey);opacity:.6}
+.ic.no .g,.ic.none .g{stroke-dasharray:2 2}
+.ic .bd{fill:currentColor;stroke:none}
+.ic .bk{stroke:var(--on-status);stroke-width:1.2}
+/* item and room tables */
+tr[data-id]{cursor:pointer}
+.inv{white-space:nowrap;color:var(--muted);font-size:12px}
+tbody tr[data-id]:hover{background:var(--surface-2)}
+tr.sel,tr.sel:hover{background:color-mix(in srgb,var(--accent) 14%,var(--surface));box-shadow:inset 3px 0 0 var(--accent)}
+tfoot td{font-weight:700;background:var(--surface-2);border-top:1px solid var(--line);border-bottom:0}
+.legend{padding:8px 14px;font-size:12px;color:var(--muted);border-top:1px solid var(--line);display:flex;gap:16px;flex-wrap:wrap;align-items:center}
+.legend span{display:inline-flex;gap:5px;align-items:center}
+/* density */
+html[data-density="compact"] th,html[data-density="compact"] td{padding:3px 10px;font-size:13px}
+html[data-density="compact"] .thumb{width:24px;height:24px;border-radius:4px}
+html[data-density="compact"] .ic svg{width:14px;height:14px}
+html[data-density="compact"] .sub{display:inline;margin-left:6px}
+html[data-density="compact"] td .btns button{padding:0 8px}
+/* insurance */
+.ins>summary{list-style:none;cursor:pointer;display:flex;align-items:center;gap:12px;padding:10px 14px}
+.ins>summary::-webkit-details-marker{display:none}
+.ins>summary::before{content:"▸";color:var(--muted);font-size:12px;transition:transform .15s}
+.ins[open]>summary::before{transform:rotate(90deg)}
+.ins>summary h2{margin:0}
+.ins .peek{color:var(--muted);font-size:13px;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ins[open]>summary{border-bottom:1px solid var(--line)}
+.ins-body{padding:14px;display:flex;flex-direction:column;gap:14px}
+.ins-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px 12px}
+.ins-grid .full{grid-column:1/-1}
+.cov{display:flex;gap:10px;align-items:flex-start;padding:10px 12px;border:1px solid var(--line);border-radius:var(--r-sm);background:var(--surface-2);font-size:13px}
+.cov.ok{border-color:var(--green)}
+.cov.gap{border-color:var(--amber)}
+.cov b{white-space:nowrap}
+@media(max-width:1000px){.split{grid-template-columns:1fr}.pane{position:static}.ins-grid{grid-template-columns:1fr 1fr}}
+@media(max-width:560px){.two,.ins-grid{grid-template-columns:1fr}.top{padding:10px 14px}main{padding:12px 14px 50px}}
 </style>
 </head>
 <body>
@@ -56,7 +119,10 @@ dialog.modal .field{margin-top:10px}
   </aside>
   <div class="content">
     <header class="top"><h1 id="title">Homes</h1>
-      <div class="top-actions"><button class="primary" id="add" type="button" hidden></button></div></header>
+      <div class="top-actions">
+        <div class="seg" role="group" aria-label="List density">
+          <button type="button" data-d="comfortable">Comfortable</button><button type="button" data-d="compact">Compact</button></div>
+        <button class="primary" id="add" type="button" hidden></button></div></header>
     <main id="app"></main>
   </div>
 </div>
@@ -101,6 +167,57 @@ $("#theme").onclick = () => {
   try { localStorage.setItem("theme", theme); } catch (e) {}
   applyTheme(theme);
 };
+
+/* ---------- density: comfortable / compact ---------- */
+let density = "comfortable";
+try { density = localStorage.getItem("density") || "comfortable"; } catch (e) {}
+function applyDensity(d) {
+  density = d === "compact" ? "compact" : "comfortable";
+  document.documentElement.setAttribute("data-density", density);
+  document.querySelectorAll(".seg button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.d === density)));
+}
+applyDensity(density);
+document.querySelectorAll(".seg button").forEach(b => b.onclick = () => {
+  try { localStorage.setItem("density", b.dataset.d); } catch (e) {}
+  applyDensity(b.dataset.d);
+});
+
+/* ---------- status icons and helpers ---------- */
+const GLYPH = {
+  photo: '<rect class="g" x="1.5" y="4" width="11" height="8.5" rx="2"/><circle class="g" cx="7" cy="8.2" r="2"/><path class="g" d="M4.6 4l.9-1.6h3l.9 1.6"/>',
+  link: '<path class="g" d="M6.3 8.7l2.4-2.4"/><path class="g" d="M5.6 7.1L4.4 8.3a2.3 2.3 0 003.3 3.3l1.2-1.2"/><path class="g" d="M9.6 7.5l1.2-1.2a2.3 2.3 0 00-3.3-3.3L6.3 4.2"/>',
+  price: '<path class="g" d="M1.5 8V2.5H7l6 6-5.5 5.5z"/><circle class="g" cx="4.7" cy="5.7" r=".9"/>'
+};
+const LABELS = {
+  photo: {yes: "Photo added", no: "No photo"},
+  link: {yes: "Equivalent-item link added", no: "No equivalent-item link"}
+};
+function icon(kind, state, label) {
+  const good = state === "yes" || state === "current";
+  const badge = good ? '<circle class="bd" cx="12.2" cy="12.2" r="3.6"/><path class="bk" d="M10.4 12.3l1.3 1.2 2.1-2.4"/>'
+    : state === "stale" ? '<circle class="bd" cx="12.2" cy="12.2" r="3.6"/><path class="bk" d="M12.2 10.4v2M12.2 13.9v.1"/>' : "";
+  return `<span class="ic ${state}" role="img" aria-label="${esc(label)}" title="${esc(label)}"><svg viewBox="0 0 16 16" aria-hidden="true">${GLYPH[kind]}${badge}</svg></span>`;
+}
+const PRICE_STALE_DAYS = 365;
+function priceState(i) {
+  if (!i.price_updated_at) return "none";
+  return (Date.now() - Date.parse(i.price_updated_at)) / 864e5 > PRICE_STALE_DAYS ? "stale" : "current";
+}
+const fmtDate = iso => iso ? new Date(iso).toLocaleDateString(undefined, {year: "numeric", month: "short", day: "numeric"}) : "";
+function priceLabel(i) {
+  const st = priceState(i);
+  return st === "none" ? "Price never updated"
+    : st === "stale" ? "Price last updated " + fmtDate(i.price_updated_at) + " (over a year ago)"
+    : "Price updated " + fmtDate(i.price_updated_at);
+}
+function itemIcons(i) {
+  const ps = priceState(i);
+  return `<span class="ico">${icon("photo", i.image ? "yes" : "no", i.image ? LABELS.photo.yes : LABELS.photo.no)}` +
+    `${icon("link", i.similar_url ? "yes" : "no", i.similar_url ? LABELS.link.yes : LABELS.link.no)}` +
+    `${icon("price", ps, priceLabel(i))}</span>`;
+}
+const safeUrl = u => /^https?:\/\/\S+$/i.test(u || "") ? u : null;
+const hostOf = u => { try { return new URL(u).hostname.replace(/^www\./, ""); } catch (e) { return u; } };
 
 /* ---------- dialog helper ---------- */
 function form(title, html, onSubmit, {submit = "Save"} = {}) {
@@ -187,21 +304,30 @@ function homeForm(h) {
 }
 
 async function homeView(id) {
-  const [home, rooms] = await Promise.all([api("GET", "/homes/" + id), api("GET", `/homes/${id}/rooms`)]);
+  const [home, rooms, ins] = await Promise.all([api("GET", "/homes/" + id), api("GET", `/homes/${id}/rooms`), api("GET", `/homes/${id}/insurance`)]);
   await buildNav(id, null);
   chrome(home.name, "+ Add room", () => roomAddForm(id));
+  const tp = rooms.reduce((s, r) => s + r.total_purchased, 0), tr = rooms.reduce((s, r) => s + r.total_replacement, 0);
   app.innerHTML = `<div class="crumbs"><a href="#/">Homes</a> / ${esc(home.name)}${home.address ? " · " + esc(home.address) : ""}</div>
     ${stats([["Rooms", home.room_count], ["Items", home.item_count],
-      ["Purchased", money(home.total_purchased)], ["Replacement", money(home.total_replacement)]])}
-    ${rooms.length ? `<div class="grid">${rooms.map(r => `
-      <div class="card tile" data-id="${r.id}"><h3>${esc(r.name)}</h3>
-        <div class="sub">${esc(r.description)}</div>
-        <div>${r.item_count} items · ${money(r.total_replacement)}</div>
-        <div class="btns"><button class="small" data-edit="${r.id}">Edit / move</button>
-        <button class="small danger" data-del="${r.id}">Delete</button></div></div>`).join("")}</div>`
-      : `<div class="panel"><div class="empty">No rooms yet. Add one. Common rooms can be pre-filled with typical items.</div></div>`}`;
-  app.querySelectorAll(".tile").forEach(c => c.onclick = e => {
-    if (e.target.closest("button")) return; location.hash = "#/room/" + c.dataset.id; });
+      ["Purchased", money(home.total_purchased)], ["Home value (replacement)", money(home.total_replacement)]])}
+    <section class="panel"><div class="panel-head"><h2>Rooms</h2></div>
+    ${rooms.length ? `<div class="table-wrap"><table><thead><tr><th>Room</th><th class="num">Items</th>
+      <th class="num">Purchased</th><th class="num">Replacement</th><th></th></tr></thead><tbody>
+      ${rooms.map(r => `<tr data-id="${r.id}" tabindex="0">
+        <td><b>${esc(r.name)}</b>${r.description ? `<div class="sub">${esc(r.description)}</div>` : ""}</td>
+        <td class="num">${r.item_count}</td><td class="num">${money(r.total_purchased)}</td><td class="num">${money(r.total_replacement)}</td>
+        <td><div class="btns"><button class="small" data-edit="${r.id}">Edit / move</button>
+        <button class="small danger" data-del="${r.id}">Delete</button></div></td></tr>`).join("")}
+      </tbody><tfoot><tr><td>Home total</td><td class="num">${rooms.reduce((s, r) => s + r.item_count, 0)}</td>
+        <td class="num">${money(tp)}</td><td class="num">${money(tr)}</td><td></td></tr></tfoot></table></div>`
+      : `<div class="empty">No rooms yet. Add one. Common rooms can be pre-filled with typical items.</div>`}</section>
+    ${insuranceSection(home, ins)}`;
+  const go = tr => { location.hash = "#/room/" + tr.dataset.id; };
+  app.querySelectorAll("tbody tr[data-id]").forEach(tr => {
+    tr.onclick = e => { if (!e.target.closest("button")) go(tr); };
+    tr.onkeydown = e => { if (e.key === "Enter" && e.target === tr) go(tr); };
+  });
   app.querySelectorAll("[data-edit]").forEach(b => b.onclick = () =>
     roomEditForm(rooms.find(r => r.id == b.dataset.edit)));
   app.querySelectorAll("[data-del]").forEach(b => b.onclick = async () => {
@@ -209,7 +335,68 @@ async function homeView(id) {
     if (!confirm(`Delete room "${r.name}" and its ${r.item_count} items?`)) return;
     await api("DELETE", "/rooms/" + r.id); toast("Room deleted"); route();
   });
+  wireInsurance(home);
 }
+
+/* ---------- home insurance (optional) ---------- */
+let insOpen = false;
+function insuranceSummary(ins) {
+  if (!ins.configured) return "Not set up. Add policy and coverage details.";
+  return [ins.insurer, ins.contents_coverage != null ? "Contents " + money(ins.contents_coverage) : "",
+    ins.renewal_date ? "Renews " + ins.renewal_date : ""].filter(Boolean).join(" · ") || "Saved";
+}
+function coverageNote(home, ins) {
+  const out = [];
+  if (ins.configured && ins.contents_coverage != null) {
+    const diff = ins.contents_coverage - home.total_replacement;
+    out.push(diff >= 0
+      ? `<div class="cov ok"><span aria-hidden="true">✔</span><div><b>Contents coverage is enough.</b> ${money(ins.contents_coverage)} covers the ${money(home.total_replacement)} replacement value, with ${money(diff)} to spare.</div></div>`
+      : `<div class="cov gap"><span aria-hidden="true">⚠</span><div><b>Contents coverage is short by ${money(-diff)}.</b> The inventory's replacement value is ${money(home.total_replacement)} but coverage is ${money(ins.contents_coverage)}.</div></div>`);
+  } else if (ins.configured) {
+    out.push(`<div class="cov"><span aria-hidden="true">ℹ</span><div>Add a contents coverage amount to compare it with the ${money(home.total_replacement)} replacement value.</div></div>`);
+  }
+  if (ins.renewal_date && ins.renewal_date < new Date().toISOString().slice(0, 10))
+    out.push(`<div class="cov gap"><span aria-hidden="true">⚠</span><div><b>Renewal date has passed</b> (${esc(ins.renewal_date)}). Check the policy is current.</div></div>`);
+  return out.join("");
+}
+function insuranceSection(home, ins) {
+  const n = (k, label, extra = "") => `<div class="field"><label for="i_${k}">${label}</label>
+    <input id="i_${k}" name="${k}" type="number" min="0" step="0.01" value="${esc(ins[k] ?? "")}" ${extra}></div>`;
+  const t = (k, label, extra = "", cls = "") => `<div class="field ${cls}"><label for="i_${k}">${label}</label>
+    <input id="i_${k}" name="${k}" value="${esc(ins[k])}" ${extra}></div>`;
+  return `<details class="panel ins" ${insOpen ? "open" : ""}><summary><h2>Insurance <span class="muted">(optional)</span></h2>
+    <span class="peek">${esc(insuranceSummary(ins))}</span></summary>
+    <form class="ins-body" id="insForm">
+      <div id="covNote">${coverageNote(home, ins)}</div>
+      <div class="ins-grid">
+        ${t("insurer", "Insurer")}${t("policy_number", "Policy number")}${t("renewal_date", "Renewal date", 'type="date"')}
+        ${n("dwelling_coverage", "Dwelling coverage ($)")}${n("contents_coverage", "Contents coverage ($)")}${n("deductible", "Deductible ($)")}
+        ${n("annual_premium", "Annual premium ($)")}${t("contact", "Agent / contact", "", "")}
+        <div class="field full"><label for="i_notes">Notes</label><textarea id="i_notes" name="notes" rows="2">${esc(ins.notes)}</textarea></div>
+      </div>
+      <div class="err" id="insErr" role="alert"></div>
+      <div class="btns"><button class="primary" type="submit">Save insurance</button>
+        ${ins.configured ? '<button class="danger" type="button" id="insClear">Clear</button>' : ""}</div>
+    </form></details>`;
+}
+function wireInsurance(home) {
+  const d = $(".ins"); if (!d) return;
+  d.addEventListener("toggle", () => { insOpen = d.open; });
+  $("#insForm").onsubmit = async e => {
+    e.preventDefault(); const f = e.target;
+    const body = {};
+    for (const k of ["insurer", "policy_number", "renewal_date", "contact", "notes", "dwelling_coverage", "contents_coverage", "deductible", "annual_premium"])
+      body[k] = f.elements[k].value;
+    try { await api("PUT", `/homes/${home.id}/insurance`, body); toast("Insurance saved"); route(); }
+    catch (err) { $("#insErr").textContent = err.message; }
+  };
+  const c = $("#insClear");
+  if (c) c.onclick = async () => {
+    if (!confirm("Clear all insurance details for this home?")) return;
+    await api("DELETE", `/homes/${home.id}/insurance`); toast("Insurance cleared"); route();
+  };
+}
+
 function roomAddForm(homeId) {
   const names = Object.keys(META.room_templates);
   form("Add room",
@@ -239,27 +426,96 @@ async function roomEditForm(r) {
       toast("Room saved"); route(); });
 }
 
+/* ---------- room view: item pane (left, always visible) + list ---------- */
+const sel = {room: null, item: null};
+
+function paneHtml(item) {
+  if (!item) return `<div class="panel-head"><h2>Item</h2></div><div class="pane-body">
+    <div class="ph-empty">No item selected</div>
+    <p class="muted" style="margin:0">Select an item in the list to see its photos, equivalent-item link and price status here.</p></div>`;
+  const url = safeUrl(item.similar_url), ps = priceState(item);
+  const photo = item.image
+    ? `<a href="/images/${esc(item.image)}" target="_blank" rel="noopener"><img class="ph" src="/images/${esc(item.image)}" alt="Photo of ${esc(item.name)}"></a>`
+    : `<div class="ph-empty">No photo</div>`;
+  const sim = item.similar_image
+    ? `<a href="/images/${esc(item.similar_image)}" target="_blank" rel="noopener"><img class="ph sm" src="/images/${esc(item.similar_image)}" alt="Equivalent item for ${esc(item.name)}"></a>`
+    : `<div class="ph-empty sm">No image of an equivalent item</div>`;
+  return `<div class="panel-head"><h2>Item</h2><span class="sub">${esc(item.inv_no)}</span></div>
+    <div class="pane-body">
+      <div><h3>${esc(item.name)}</h3><div class="sub">${esc(item.brand)}${item.brand && item.item_type ? " · " : ""}${esc(item.item_type || "")}</div></div>
+      ${photo}
+      <div class="btns"><button class="small" data-pick="photo">${item.image ? "Replace photo" : "Add photo"}</button></div>
+      <div><h4>Equivalent item</h4>${sim}
+        <div class="links" style="margin-top:6px">${url ? `<a href="${esc(url)}" target="_blank" rel="noopener noreferrer">${esc(hostOf(url))} ↗</a>` : '<span class="muted">No link yet</span>'}</div>
+        <div class="btns" style="margin-top:6px"><button class="small" data-pick="similar">${item.similar_image ? "Replace image" : "Add image"}</button></div></div>
+      <dl><dt>Purchased</dt><dd>${money(item.purchased_value)}</dd>
+        <dt>Replacement</dt><dd>${money(item.replacement_value)}</dd>
+        <dt>Price updated</dt><dd>${item.price_updated_at ? esc(fmtDate(item.price_updated_at)) : "Never"}</dd></dl>
+      ${item.description ? `<div class="desc">${esc(item.description)}</div>` : ""}
+      <div class="flags"><div>${icon("photo", item.image ? "yes" : "no", item.image ? LABELS.photo.yes : LABELS.photo.no)}<span>${item.image ? LABELS.photo.yes : LABELS.photo.no}</span></div>
+        <div>${icon("link", url ? "yes" : "no", url ? LABELS.link.yes : LABELS.link.no)}<span>${url ? LABELS.link.yes : LABELS.link.no}</span></div>
+        <div>${icon("price", ps, priceLabel(item))}<span>${esc(priceLabel(item))}</span></div></div>
+      <div class="btns"><button class="primary small" data-act="edit">Edit</button>
+        <button class="small" data-act="confirm">Mark price current</button></div>
+    </div>`;
+}
+
+function pickImage(itemId, kind) {
+  const inp = document.createElement("input");
+  inp.type = "file"; inp.accept = "image/*";
+  inp.onchange = async () => {
+    if (!inp.files[0]) return;
+    try { await api("POST", `/items/${itemId}/image?kind=${kind}`, {data: await readFile(inp.files[0])}); toast("Image saved"); route(); }
+    catch (err) { toast(err.message); }
+  };
+  inp.click();
+}
+
 async function roomView(id) {
   const room = await api("GET", "/rooms/" + id);
   const [home, items] = await Promise.all([api("GET", "/homes/" + room.home_id), api("GET", `/rooms/${id}/items`)]);
   await buildNav(home.id, room.id);
   chrome(room.name, "+ Add item", () => itemForm(room));
-  const purchased = items.reduce((s, i) => s + i.purchased_value, 0);
+  if (sel.room !== id) { sel.room = id; sel.item = null; }
+  if (!items.some(i => i.id === sel.item)) sel.item = null;
   app.innerHTML = `<div class="crumbs"><a href="#/">Homes</a> / <a href="#/home/${home.id}">${esc(home.name)}</a> / ${esc(room.name)}${room.description ? " · " + esc(room.description) : ""}</div>
-    ${stats([["Items", items.length], ["Purchased", money(purchased)], ["Replacement", money(room.total_replacement)]])}
+    ${stats([["Items", items.length], ["Purchased", money(room.total_purchased)], ["Room total (replacement)", money(room.total_replacement)],
+      ["Home total", money(home.total_replacement)]])}
+    <div class="split"><aside class="panel pane" id="pane" aria-label="Selected item"></aside>
     <section class="panel"><div class="panel-head"><h2>Items</h2></div>
-    ${items.length ? `<div class="table-wrap"><table><thead><tr><th aria-label="Photo"></th><th>Inv #</th><th>Item</th><th>Type</th>
-      <th class="num">Purchased</th><th class="num">Replacement</th><th></th></tr></thead><tbody>
-      ${items.map(i => `<tr>
+    ${items.length ? `<div class="table-wrap"><table><thead><tr><th aria-label="Photo"></th><th>Item</th><th>Inv #</th>
+      <th>Status</th><th class="num">Purchased</th><th class="num">Replacement</th></tr></thead><tbody>
+      ${items.map(i => `<tr data-id="${i.id}" tabindex="0" aria-selected="${i.id === sel.item}" class="${i.id === sel.item ? "sel" : ""}">
         <td>${i.image ? `<img class="thumb" src="/images/${esc(i.image)}" alt="">` : `<div class="thumb"></div>`}</td>
-        <td>${esc(i.inv_no)}</td>
-        <td><b>${esc(i.name)}</b>${i.brand ? `<div class="sub">${esc(i.brand)}</div>` : ""}</td>
-        <td>${i.item_type ? `<span class="tag">${esc(i.item_type)}</span>` : ""}</td>
-        <td class="num">${money(i.purchased_value)}</td><td class="num">${money(i.replacement_value)}</td>
-        <td><button class="small" data-edit="${i.id}">Edit</button></td></tr>`).join("")}
-      </tbody></table></div>` : `<div class="empty">No items in this room yet.</div>`}</section>`;
-  app.querySelectorAll("[data-edit]").forEach(b => b.onclick = () =>
-    itemForm(room, items.find(i => i.id == b.dataset.edit)));
+        <td><b>${esc(i.name)}</b>${i.brand || i.item_type ? `<div class="sub">${esc([i.brand, i.item_type].filter(Boolean).join(" · "))}</div>` : ""}</td>
+        <td class="inv">${esc(i.inv_no)}</td>
+        <td>${itemIcons(i)}</td>
+        <td class="num">${money(i.purchased_value)}</td><td class="num">${money(i.replacement_value)}</td></tr>`).join("")}
+      </tbody><tfoot><tr><td colspan="4">Room total (${items.length} items)</td>
+        <td class="num">${money(room.total_purchased)}</td><td class="num">${money(room.total_replacement)}</td></tr></tfoot></table></div>
+      <div class="legend"><span>${icon("photo", "yes", "Photo")} photo</span><span>${icon("link", "yes", "Link")} equivalent-item link</span>
+        <span>${icon("price", "current", "Price")} price updated within a year</span><span>${icon("price", "stale", "Price")} older than a year</span>
+        <span>${icon("price", "none", "Price")} never updated · dashed = missing</span></div>`
+      : `<div class="empty">No items in this room yet.</div>`}</section></div>`;
+  const pane = $("#pane");
+  const show = () => {
+    const item = items.find(i => i.id === sel.item) || null;
+    pane.innerHTML = paneHtml(item);
+    pane.querySelectorAll("[data-pick]").forEach(b => b.onclick = () => pickImage(item.id, b.dataset.pick));
+    const ed = pane.querySelector('[data-act="edit"]'); if (ed) ed.onclick = () => itemForm(room, item);
+    const cf = pane.querySelector('[data-act="confirm"]');
+    if (cf) cf.onclick = async () => { await api("PUT", "/items/" + item.id, {price_confirmed: true}); toast("Price marked current"); route(); };
+    app.querySelectorAll("tbody tr[data-id]").forEach(tr => {
+      const on = +tr.dataset.id === sel.item;
+      tr.classList.toggle("sel", on); tr.setAttribute("aria-selected", String(on));
+    });
+  };
+  app.querySelectorAll("tbody tr[data-id]").forEach(tr => {
+    const pick = () => { sel.item = +tr.dataset.id; show(); };
+    tr.onclick = pick;
+    tr.onkeydown = e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); pick(); } };
+  });
+  show();
 }
 
 async function itemForm(room, item) {
@@ -285,7 +541,7 @@ async function itemForm(room, item) {
       const saved = item ? await api("PUT", "/items/" + item.id, b) : await api("POST", `/rooms/${room.id}/items`, b);
       for (const k of ["photo", "similar"])
         if (imgs[k]) await api("POST", `/items/${saved.id}/image?kind=${k}`, {data: imgs[k]});
-      toast("Item saved"); route();
+      sel.item = saved.id; toast("Item saved"); route();
     });
   const d = $("#dlg");
   d.querySelectorAll("input[type=file]").forEach(inp => inp.onchange = async () => {
@@ -297,7 +553,7 @@ async function itemForm(room, item) {
     const del = document.createElement("button");
     del.type = "button"; del.className = "danger"; del.textContent = "Delete";
     del.onclick = async () => { if (!confirm(`Delete ${item.name}?`)) return;
-      await api("DELETE", "/items/" + item.id); d.close(); toast("Item deleted"); route(); };
+      await api("DELETE", "/items/" + item.id); d.close(); sel.item = null; toast("Item deleted"); route(); };
     $(".dlg-actions", d).prepend(del);
   }
 }

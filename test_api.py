@@ -152,5 +152,88 @@ class ApiTest(unittest.TestCase):
             self.assertEqual(e.code, 404)
 
 
+    def test_price_updated_stamp(self):
+        h = self.home()
+        r = self.room(h["id"], "Kitchen", prefill=True)
+        tmpl = self.call("GET", "/api/rooms/%d/items" % r["id"])[0]
+        self.assertIsNone(tmpl["price_updated_at"])
+        base = "/api/rooms/%d/items" % r["id"]
+        plain = self.call("POST", base, {"name": "A", "purchased_value": 10}, 201)
+        self.assertIsNone(plain["price_updated_at"])
+        priced = self.call("POST", base, {"name": "B", "replacement_value": 30}, 201)
+        self.assertRegex(priced["price_updated_at"], r"^\d{4}-\d\d-\d\dT")
+        same = self.call("PUT", "/api/items/%d" % plain["id"], {"replacement_value": 10}, 200)
+        self.assertIsNone(same["price_updated_at"])
+        changed = self.call("PUT", "/api/items/%d" % plain["id"], {"replacement_value": 12}, 200)
+        self.assertIsNotNone(changed["price_updated_at"])
+        conf = self.call("PUT", "/api/items/%d" % tmpl["id"], {"price_confirmed": True}, 200)
+        self.assertIsNotNone(conf["price_updated_at"])
+        self.assertEqual(conf["replacement_value"], tmpl["replacement_value"])
+
+    def test_similar_url_validation(self):
+        h = self.home()
+        r = self.room(h["id"])
+        base = "/api/rooms/%d/items" % r["id"]
+        self.call("POST", base, {"name": "X", "similar_url": "javascript:alert(1)"}, 400)
+        ok = self.call("POST", base, {"name": "X", "similar_url": "https://shop.example/x"}, 201)
+        self.call("PUT", "/api/items/%d" % ok["id"], {"similar_url": "ftp://x"}, 400)
+        self.call("PUT", "/api/items/%d" % ok["id"], {"similar_url": ""}, 200)
+
+    def test_room_totals(self):
+        h = self.home()
+        r = self.room(h["id"])
+        base = "/api/rooms/%d/items" % r["id"]
+        self.call("POST", base, {"name": "A", "purchased_value": 10, "replacement_value": 20}, 201)
+        self.call("POST", base, {"name": "B", "purchased_value": 5}, 201)
+        got = self.call("GET", "/api/rooms/%d" % r["id"])
+        self.assertEqual((got["total_purchased"], got["total_replacement"]), (15, 25))
+
+    def test_insurance(self):
+        h = self.home()
+        path = "/api/homes/%d/insurance" % h["id"]
+        empty = self.call("GET", path, expect=200)
+        self.assertFalse(empty["configured"])
+        self.assertIsNone(empty["contents_coverage"])
+        got = self.call("PUT", path, {"insurer": "Acme", "contents_coverage": 50000,
+                                      "renewal_date": "2027-03-01"}, 200)
+        self.assertTrue(got["configured"])
+        got = self.call("PUT", path, {"deductible": "1000"}, 200)  # merge, not replace
+        self.assertEqual((got["insurer"], got["contents_coverage"], got["deductible"]),
+                         ("Acme", 50000, 1000))
+        self.call("PUT", path, {"renewal_date": "03/01/2027"}, 400)
+        self.call("PUT", path, {"contents_coverage": -5}, 400)
+        self.call("PUT", path, {"deductible": ""}, 200)
+        self.assertIsNone(self.call("GET", path)["deductible"])
+        self.call("DELETE", path, expect=200)
+        self.assertFalse(self.call("GET", path)["configured"])
+        self.call("PUT", path, {"insurer": "Acme"}, 200)
+        self.call("DELETE", "/api/homes/%d" % h["id"], expect=200)
+        self.call("GET", path, expect=404)
+
+    def test_migrates_old_database(self):
+        import sqlite3
+        d = tempfile.mkdtemp()
+        c = sqlite3.connect(os.path.join(d, "inventory.db"))
+        c.executescript("""CREATE TABLE homes (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, address TEXT);
+          CREATE TABLE rooms (id INTEGER PRIMARY KEY AUTOINCREMENT, home_id INTEGER NOT NULL, name TEXT NOT NULL, description TEXT NOT NULL DEFAULT '');
+          CREATE TABLE items (id INTEGER PRIMARY KEY AUTOINCREMENT, inv_no TEXT UNIQUE, room_id INTEGER NOT NULL, name TEXT NOT NULL,
+            description TEXT NOT NULL DEFAULT '', brand TEXT NOT NULL DEFAULT '', purchased_value REAL NOT NULL DEFAULT 0,
+            replacement_value REAL NOT NULL DEFAULT 0, similar_url TEXT NOT NULL DEFAULT '', item_type TEXT, image TEXT,
+            similar_image TEXT, source TEXT NOT NULL DEFAULT 'manual');
+          INSERT INTO homes (name) VALUES ('Old'); INSERT INTO rooms (home_id, name) VALUES (1, 'R');
+          INSERT INTO items (room_id, name) VALUES (1, 'Old thing');""")
+        c.commit(); c.close()
+        old = server.DATA_DIR
+        try:
+            server.DATA_DIR = d
+            server.init_storage()
+            conn = server.connect()
+            row = conn.execute("SELECT name, price_updated_at FROM items").fetchone()
+            conn.close()
+            self.assertEqual((row["name"], row["price_updated_at"]), ("Old thing", None))
+        finally:
+            server.DATA_DIR = old
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=1)
