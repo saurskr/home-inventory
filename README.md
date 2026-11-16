@@ -8,6 +8,8 @@ python3 server.py          # http://localhost:8000  (PORT=9000 to change)
 python3 test_api.py        # API tests
 ```
 
+UI styling comes from the shared design system (`static/ds/`, a vendored copy of github.com/saurskr/design-system: Warm Paper / Midnight themes, Auto/Light/Dark switch in the sidebar).
+
 Data lives in `data/inventory.db` and `data/images/` (git-ignored; override with `INVENTORY_DATA_DIR`).
 The server binds to 127.0.0.1 only. Add authentication before exposing it on the LAN.
 

@@ -4,76 +4,64 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Home Inventory</title>
+<link rel="stylesheet" href="ds/tokens/tokens.css">
+<link rel="stylesheet" href="ds/base/base.css">
+<link rel="stylesheet" href="ds/components/shell/shell.css">
+<link rel="stylesheet" href="ds/components/status/status.css">
+<link rel="stylesheet" href="ds/components/panel/panel.css">
+<link rel="stylesheet" href="ds/components/card/card.css">
 <style>
-:root{
-  --background:#dbd37d; --ink:#060324;
-  --surface:color-mix(in srgb,var(--background) 40%,white);
-  --surface-2:color-mix(in srgb,var(--background) 75%,white);
-  --line:color-mix(in srgb,var(--ink) 22%,var(--background));
-  --muted:color-mix(in srgb,var(--ink) 65%,var(--background));
-  --danger:#8f1d1d;
-  --radius:10px;
-}
-*{box-sizing:border-box}
-body{margin:0;background:var(--background);color:var(--ink);
-  font:16px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
-header{display:flex;align-items:center;gap:12px;padding:14px 20px;
-  border-bottom:2px solid var(--ink)}
-header h1{font-size:1.2rem;margin:0}
-header a{color:var(--ink);text-decoration:none}
-main{max-width:980px;margin:0 auto;padding:20px 16px 60px}
-.crumbs{color:var(--muted);margin-bottom:12px;font-size:.95rem}
-.crumbs a{color:var(--ink)}
-.bar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between;margin:8px 0 16px}
-h2{margin:0;font-size:1.5rem}
-.sub{color:var(--muted);margin:2px 0 0}
-button,.btn{font:inherit;cursor:pointer;border:2px solid var(--ink);background:var(--surface);
-  color:var(--ink);padding:6px 14px;border-radius:var(--radius)}
-button:hover{background:var(--surface-2)}
-button.primary{background:var(--ink);color:var(--background)}
-button.primary:hover{background:color-mix(in srgb,var(--ink) 85%,white)}
-button.danger{border-color:var(--danger);color:var(--danger)}
-button.small{padding:3px 10px;font-size:.9rem}
+/* App-specific layout only; every colour, radius and font comes from the design system tokens. */
+.crumbs{font-size:13px;color:var(--muted)}
+.crumbs a{color:var(--accent)}
+.lead{margin:2px 0 0;color:var(--muted)}
 .grid{display:grid;gap:12px;grid-template-columns:repeat(auto-fill,minmax(260px,1fr))}
-.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:14px}
-.card.link{cursor:pointer}
-.card.link:hover{border-color:var(--ink)}
-.card h3{margin:0 0 4px;font-size:1.1rem}
-.stat{color:var(--muted);font-size:.9rem}
-.row{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
-table{width:100%;border-collapse:collapse;background:var(--surface);border-radius:var(--radius);overflow:hidden}
-th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:middle}
-th{background:var(--surface-2);font-size:.85rem;text-transform:uppercase;letter-spacing:.04em}
-td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
-.thumb{width:44px;height:44px;object-fit:cover;border-radius:6px;border:1px solid var(--line);background:var(--surface-2)}
-.tag{display:inline-block;font-size:.78rem;padding:1px 8px;border:1px solid var(--ink);border-radius:99px}
-.empty{padding:30px;text-align:center;color:var(--muted);border:2px dashed var(--line);border-radius:var(--radius)}
+.tile{cursor:pointer;gap:6px}
+.tile:hover{border-color:var(--accent)}
+.tile h3{margin:0;font-size:15px}
+.tile .btns{margin-top:6px}
+.btns{display:flex;gap:8px;flex-wrap:wrap}
+button.small{padding:2px 10px;font-size:12px}
+table{width:100%;border-collapse:collapse}
+th,td{text-align:left;padding:8px 14px;border-bottom:1px solid var(--line);vertical-align:middle}
+tbody tr:last-child td{border-bottom:0}
+th{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:600;background:var(--surface-2)}
+.num{text-align:right;font-variant-numeric:tabular-nums}
 .table-wrap{overflow-x:auto}
-dialog{border:2px solid var(--ink);border-radius:14px;background:var(--background);color:var(--ink);
-  padding:20px;width:min(520px,94vw);max-height:92vh}
-dialog::backdrop{background:color-mix(in srgb,var(--ink) 55%,transparent)}
-dialog h3{margin-top:0}
-label{display:block;font-size:.9rem;margin:10px 0 3px;font-weight:600}
-input,select,textarea{width:100%;font:inherit;padding:7px 9px;border:1.5px solid var(--ink);
-  border-radius:8px;background:var(--surface);color:var(--ink)}
+.thumb{width:44px;height:44px;object-fit:cover;border-radius:var(--r-sm);border:1px solid var(--line);background:var(--surface-2);display:block}
+.sub{color:var(--muted);font-size:12px}
+.preview{max-width:100%;max-height:160px;border-radius:var(--r-sm);border:1px solid var(--line)}
+dialog.modal{border:1px solid var(--line);border-radius:var(--r);background:var(--surface);color:var(--text);
+  box-shadow:var(--shadow);padding:20px;width:min(520px,94vw);max-height:92vh;text-align:left}
+dialog.modal::backdrop{background:rgba(10,14,20,.4)}
+dialog.modal h3{margin:0 0 6px}
+dialog.modal .field{margin-top:10px}
 .two{display:grid;grid-template-columns:1fr 1fr;gap:10px}
-.actions{display:flex;justify-content:flex-end;gap:8px;margin-top:18px}
-.check{display:flex;gap:8px;align-items:center;font-weight:400;margin-top:12px}
-.check input{width:auto}
-.preview{max-width:100%;max-height:160px;border-radius:8px;margin-top:6px;border:1px solid var(--line)}
-.err{color:var(--danger);margin-top:10px;min-height:1.2em}
-.toast{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);background:var(--ink);
-  color:var(--background);padding:8px 16px;border-radius:99px;opacity:0;transition:opacity .2s;pointer-events:none}
+.err{color:var(--red);min-height:1.2em;margin-top:8px}
+.dlg-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:16px}
+.toast{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);background:var(--head);color:var(--head-text);
+  padding:8px 16px;border-radius:999px;opacity:0;transition:opacity .2s;pointer-events:none;z-index:60}
 .toast.show{opacity:1}
-:focus-visible{outline:3px solid var(--ink);outline-offset:2px}
-@media(max-width:560px){.two{grid-template-columns:1fr}}
+.top h1{font-size:18px}
+@media(max-width:560px){.two{grid-template-columns:1fr}.top{padding:10px 14px}main{padding:12px 14px 50px}}
 </style>
 </head>
 <body>
-<header><h1><a href="#/">Home Inventory</a></h1></header>
-<main id="app"></main>
-<dialog id="dlg"></dialog>
-<div class="toast" id="toast"></div>
+<div class="shell">
+  <aside class="side">
+    <div class="brand">Home Inventory</div>
+    <nav aria-label="Homes" id="nav"></nav>
+    <div class="side-foot"><div class="who">Saved on this computer<small>No account, no cloud</small></div>
+      <button id="theme" type="button"></button></div>
+  </aside>
+  <div class="content">
+    <header class="top"><h1 id="title">Homes</h1>
+      <div class="top-actions"><button class="primary" id="add" type="button" hidden></button></div></header>
+    <main id="app"></main>
+  </div>
+</div>
+<dialog id="dlg" class="modal"></dialog>
+<div class="toast" id="toast" role="status"></div>
 <script>
 "use strict";
 const $ = (s, r = document) => r.querySelector(s);
@@ -97,13 +85,29 @@ const readFile = f => new Promise((ok, no) => {
   const r = new FileReader(); r.onload = () => ok(r.result); r.onerror = no; r.readAsDataURL(f);
 });
 
+/* ---------- theme: Auto / Light / Dark ---------- */
+const THEMES = ["auto", "light", "dark"];
+function applyTheme(t) {
+  if (t === "auto") document.documentElement.removeAttribute("data-theme");
+  else document.documentElement.setAttribute("data-theme", t);
+  $("#theme").textContent = "◐ Theme: " + t[0].toUpperCase() + t.slice(1);
+}
+let theme = "auto";
+try { theme = localStorage.getItem("theme") || "auto"; } catch (e) {}
+if (!THEMES.includes(theme)) theme = "auto";
+applyTheme(theme);
+$("#theme").onclick = () => {
+  theme = THEMES[(THEMES.indexOf(theme) + 1) % THEMES.length];
+  try { localStorage.setItem("theme", theme); } catch (e) {}
+  applyTheme(theme);
+};
+
 /* ---------- dialog helper ---------- */
-// fields: [{name,label,type,value,options,required,full}], onSubmit(values) -> promise
 function form(title, html, onSubmit, {submit = "Save"} = {}) {
   const d = $("#dlg");
   d.innerHTML = `<form method="dialog"><h3>${esc(title)}</h3>${html}
     <div class="err" role="alert"></div>
-    <div class="actions"><button type="button" data-x>Cancel</button>
+    <div class="dlg-actions"><button type="button" data-x>Cancel</button>
     <button class="primary">${esc(submit)}</button></div></form>`;
   $("[data-x]", d).onclick = () => d.close();
   $("form", d).onsubmit = async e => {
@@ -115,34 +119,57 @@ function form(title, html, onSubmit, {submit = "Save"} = {}) {
   const first = $("input,select,textarea", d); if (first) first.focus();
 }
 const field = (name, label, v = "", attrs = "") =>
-  `<label for="f_${name}">${esc(label)}</label><input id="f_${name}" name="${name}" value="${esc(v)}" ${attrs}>`;
+  `<div class="field"><label for="f_${name}">${esc(label)}</label><input id="f_${name}" name="${name}" value="${esc(v)}" ${attrs}></div>`;
 const area = (name, label, v = "") =>
-  `<label for="f_${name}">${esc(label)}</label><textarea id="f_${name}" name="${name}" rows="2">${esc(v)}</textarea>`;
+  `<div class="field"><label for="f_${name}">${esc(label)}</label><textarea id="f_${name}" name="${name}" rows="2">${esc(v)}</textarea></div>`;
 const select = (name, label, opts, cur, blank) =>
-  `<label for="f_${name}">${esc(label)}</label><select id="f_${name}" name="${name}">` +
+  `<div class="field"><label for="f_${name}">${esc(label)}</label><select id="f_${name}" name="${name}">` +
   (blank ? `<option value="">${esc(blank)}</option>` : "") +
   opts.map(([v, t]) => `<option value="${esc(v)}" ${String(v) === String(cur) ? "selected" : ""}>${esc(t)}</option>`).join("") +
-  `</select>`;
+  `</select></div>`;
 const val = (f, n) => f.elements[n].value;
 
-/* ---------- views ---------- */
+/* ---------- chrome: sidebar nav, title, primary action ---------- */
 const app = $("#app");
+async function buildNav(homeId, roomId) {
+  const homes = await api("GET", "/homes");
+  const rooms = await Promise.all(homes.map(h => api("GET", `/homes/${h.id}/rooms`)));
+  $("#nav").innerHTML = `<a href="#/" ${homeId == null ? 'aria-current="page"' : ""}>All homes</a><hr>` +
+    homes.map((h, i) => {
+      const open = h.id === homeId;
+      return `<div class="nav-group"><div class="nav-row">
+        <a href="#/home/${h.id}" ${open && roomId == null ? 'aria-current="page"' : ""}>${esc(h.name)}<span class="nav-count">${rooms[i].length}</span></a>
+        <button class="nav-toggle" type="button" aria-expanded="${open}" aria-label="Toggle ${esc(h.name)} rooms"><span aria-hidden="true">▸</span></button></div>
+        <ul class="nav-items" ${open ? "" : "hidden"}>${rooms[i].length ? rooms[i].map(r =>
+          `<li><a class="nav-item" href="#/room/${r.id}" ${r.id === roomId ? 'aria-current="true"' : ""}><span class="nm">${esc(r.name)}</span></a></li>`).join("")
+          : '<li class="nav-empty">No rooms yet</li>'}</ul></div>`;
+    }).join("");
+  $("#nav").querySelectorAll(".nav-toggle").forEach(b => b.onclick = () => {
+    const ul = b.closest(".nav-group").querySelector(".nav-items");
+    ul.hidden = !ul.hidden; b.setAttribute("aria-expanded", String(!ul.hidden));
+  });
+}
+function chrome(title, addLabel, onAdd) {
+  $("#title").textContent = title; document.title = title + " · Home Inventory";
+  const b = $("#add"); b.hidden = !addLabel; b.textContent = addLabel || ""; b.onclick = onAdd || null;
+}
+const stats = list => `<div class="stats">${list.map(([k, v]) => `<div class="stat"><span>${esc(k)}</span><b>${v}</b></div>`).join("")}</div>`;
 
+/* ---------- views ---------- */
 async function homesView() {
   const homes = await api("GET", "/homes");
-  app.innerHTML = `
-    <div class="bar"><div><h2>Homes</h2><p class="sub">Everything stays on this computer.</p></div>
-      <button class="primary" id="add">+ Add home</button></div>
-    ${homes.length ? `<div class="grid">${homes.map(h => `
-      <div class="card link" data-id="${h.id}">
-        <h3>${esc(h.name)}</h3><div class="stat">${esc(h.address || "No address")}</div>
-        <div class="stat">${h.room_count} rooms · ${h.item_count} items</div>
-        <div class="stat">Replacement value: <b>${money(h.total_replacement)}</b></div>
-        <div class="row"><button class="small" data-edit="${h.id}">Edit</button>
+  await buildNav(null, null);
+  chrome("Homes", "+ Add home", () => homeForm());
+  app.innerHTML = homes.length ? `<div class="grid">${homes.map(h => `
+      <div class="card tile" data-id="${h.id}">
+        <h3>${esc(h.name)}</h3><div class="sub">${esc(h.address || "No address")}</div>
+        <div>${h.room_count} rooms · ${h.item_count} items</div>
+        <div class="muted">Replacement value <b style="color:var(--text)">${money(h.total_replacement)}</b></div>
+        <div class="btns"><button class="small" data-edit="${h.id}">Edit</button>
         <button class="small danger" data-del="${h.id}">Delete</button></div>
-      </div>`).join("")}</div>` : `<div class="empty">No homes yet. Add your first home to start cataloging.</div>`}`;
-  $("#add").onclick = () => homeForm();
-  app.querySelectorAll(".card.link").forEach(c => c.onclick = e => {
+      </div>`).join("")}</div>`
+    : `<div class="panel"><div class="empty">No homes yet. Add your first home to start cataloging. Everything stays on this computer.</div></div>`;
+  app.querySelectorAll(".tile").forEach(c => c.onclick = e => {
     if (e.target.closest("button")) return; location.hash = "#/home/" + c.dataset.id; });
   app.querySelectorAll("[data-edit]").forEach(b => b.onclick = () =>
     homeForm(homes.find(h => h.id == b.dataset.edit)));
@@ -161,20 +188,19 @@ function homeForm(h) {
 
 async function homeView(id) {
   const [home, rooms] = await Promise.all([api("GET", "/homes/" + id), api("GET", `/homes/${id}/rooms`)]);
-  app.innerHTML = `
-    <div class="crumbs"><a href="#/">Homes</a> / ${esc(home.name)}</div>
-    <div class="bar"><div><h2>${esc(home.name)}</h2>
-      <p class="sub">${esc(home.address || "")} ${home.item_count} items · replacement ${money(home.total_replacement)}</p></div>
-      <button class="primary" id="add">+ Add room</button></div>
+  await buildNav(id, null);
+  chrome(home.name, "+ Add room", () => roomAddForm(id));
+  app.innerHTML = `<div class="crumbs"><a href="#/">Homes</a> / ${esc(home.name)}${home.address ? " · " + esc(home.address) : ""}</div>
+    ${stats([["Rooms", home.room_count], ["Items", home.item_count],
+      ["Purchased", money(home.total_purchased)], ["Replacement", money(home.total_replacement)]])}
     ${rooms.length ? `<div class="grid">${rooms.map(r => `
-      <div class="card link" data-id="${r.id}"><h3>${esc(r.name)}</h3>
-        <div class="stat">${esc(r.description)}</div>
-        <div class="stat">${r.item_count} items · ${money(r.total_replacement)}</div>
-        <div class="row"><button class="small" data-edit="${r.id}">Edit / move</button>
+      <div class="card tile" data-id="${r.id}"><h3>${esc(r.name)}</h3>
+        <div class="sub">${esc(r.description)}</div>
+        <div>${r.item_count} items · ${money(r.total_replacement)}</div>
+        <div class="btns"><button class="small" data-edit="${r.id}">Edit / move</button>
         <button class="small danger" data-del="${r.id}">Delete</button></div></div>`).join("")}</div>`
-      : `<div class="empty">No rooms yet. Add one — common rooms can be pre-filled with typical items.</div>`}`;
-  $("#add").onclick = () => roomAddForm(id);
-  app.querySelectorAll(".card.link").forEach(c => c.onclick = e => {
+      : `<div class="panel"><div class="empty">No rooms yet. Add one. Common rooms can be pre-filled with typical items.</div></div>`}`;
+  app.querySelectorAll(".tile").forEach(c => c.onclick = e => {
     if (e.target.closest("button")) return; location.hash = "#/room/" + c.dataset.id; });
   app.querySelectorAll("[data-edit]").forEach(b => b.onclick = () =>
     roomEditForm(rooms.find(r => r.id == b.dataset.edit)));
@@ -187,11 +213,11 @@ async function homeView(id) {
 function roomAddForm(homeId) {
   const names = Object.keys(META.room_templates);
   form("Add room",
-    `<label for="f_name">Room name</label>
+    `<div class="field"><label for="f_name">Room name</label>
      <input id="f_name" name="name" list="tmpl" required autocomplete="off" placeholder="e.g. Kitchen">
-     <datalist id="tmpl">${names.map(n => `<option value="${esc(n)}">`).join("")}</datalist>` +
+     <datalist id="tmpl">${names.map(n => `<option value="${esc(n)}">`).join("")}</datalist></div>` +
     area("description", "Description (optional)") +
-    `<label class="check"><input type="checkbox" name="prefill" id="pf"> <span id="pfl">Pre-fill with typical items</span></label>`,
+    `<label class="toggle" style="margin-top:12px"><input type="checkbox" name="prefill" id="pf"> <span id="pfl"></span></label>`,
     async f => {
       await api("POST", `/homes/${homeId}/rooms`,
         {name: val(f, "name"), description: val(f, "description"), prefill: f.elements.prefill.checked});
@@ -216,22 +242,22 @@ async function roomEditForm(r) {
 async function roomView(id) {
   const room = await api("GET", "/rooms/" + id);
   const [home, items] = await Promise.all([api("GET", "/homes/" + room.home_id), api("GET", `/rooms/${id}/items`)]);
-  app.innerHTML = `
-    <div class="crumbs"><a href="#/">Homes</a> / <a href="#/home/${home.id}">${esc(home.name)}</a> / ${esc(room.name)}</div>
-    <div class="bar"><div><h2>${esc(room.name)}</h2>
-      <p class="sub">${esc(room.description)} ${items.length} items · replacement ${money(room.total_replacement)}</p></div>
-      <button class="primary" id="add">+ Add item</button></div>
-    ${items.length ? `<div class="table-wrap"><table><thead><tr><th></th><th>Inv #</th><th>Item</th><th>Type</th>
+  await buildNav(home.id, room.id);
+  chrome(room.name, "+ Add item", () => itemForm(room));
+  const purchased = items.reduce((s, i) => s + i.purchased_value, 0);
+  app.innerHTML = `<div class="crumbs"><a href="#/">Homes</a> / <a href="#/home/${home.id}">${esc(home.name)}</a> / ${esc(room.name)}${room.description ? " · " + esc(room.description) : ""}</div>
+    ${stats([["Items", items.length], ["Purchased", money(purchased)], ["Replacement", money(room.total_replacement)]])}
+    <section class="panel"><div class="panel-head"><h2>Items</h2></div>
+    ${items.length ? `<div class="table-wrap"><table><thead><tr><th aria-label="Photo"></th><th>Inv #</th><th>Item</th><th>Type</th>
       <th class="num">Purchased</th><th class="num">Replacement</th><th></th></tr></thead><tbody>
       ${items.map(i => `<tr>
         <td>${i.image ? `<img class="thumb" src="/images/${esc(i.image)}" alt="">` : `<div class="thumb"></div>`}</td>
         <td>${esc(i.inv_no)}</td>
-        <td><b>${esc(i.name)}</b>${i.brand ? `<div class="stat">${esc(i.brand)}</div>` : ""}</td>
+        <td><b>${esc(i.name)}</b>${i.brand ? `<div class="sub">${esc(i.brand)}</div>` : ""}</td>
         <td>${i.item_type ? `<span class="tag">${esc(i.item_type)}</span>` : ""}</td>
         <td class="num">${money(i.purchased_value)}</td><td class="num">${money(i.replacement_value)}</td>
         <td><button class="small" data-edit="${i.id}">Edit</button></td></tr>`).join("")}
-      </tbody></table></div>` : `<div class="empty">No items in this room yet.</div>`}`;
-  $("#add").onclick = () => itemForm(room);
+      </tbody></table></div>` : `<div class="empty">No items in this room yet.</div>`}</section>`;
   app.querySelectorAll("[data-edit]").forEach(b => b.onclick = () =>
     itemForm(room, items.find(i => i.id == b.dataset.edit)));
 }
@@ -239,16 +265,15 @@ async function roomView(id) {
 async function itemForm(room, item) {
   const rooms = await api("GET", `/homes/${room.home_id}/rooms`);
   const imgs = {photo: null, similar: null};
-  const img = (kind, label, cur) => `<label>${label}</label>
-    <input type="file" accept="image/*" data-kind="${kind}">
-    <img class="preview" data-prev="${kind}" ${cur ? `src="/images/${esc(cur)}"` : "hidden"} alt="">`;
+  const img = (kind, label, cur) => `<div class="field"><label for="f_img_${kind}">${label}</label>
+    <input id="f_img_${kind}" type="file" accept="image/*" data-kind="${kind}">
+    <img class="preview" data-prev="${kind}" ${cur ? `src="/images/${esc(cur)}"` : "hidden"} alt=""></div>`;
   form(item ? `Edit ${item.inv_no}` : "Add item",
     field("name", "Name", item?.name, "required") +
-    `<div class="two"><div>${field("brand", "Brand", item?.brand)}</div>
-      <div>${select("item_type", "Type", META.item_types.map(t => [t, t]), item?.item_type, "— choose —")}</div></div>` +
+    `<div class="two">${field("brand", "Brand", item?.brand)}${select("item_type", "Type", META.item_types.map(t => [t, t]), item?.item_type, "— choose —")}</div>` +
     area("description", "Description", item?.description) +
-    `<div class="two"><div>${field("purchased_value", "Purchased value ($)", item?.purchased_value ?? "", 'type="number" min="0" step="0.01"')}</div>
-      <div>${field("replacement_value", "Replacement value ($)", item?.replacement_value ?? "", 'type="number" min="0" step="0.01" placeholder="defaults to purchased"')}</div></div>` +
+    `<div class="two">${field("purchased_value", "Purchased value ($)", item?.purchased_value ?? "", 'type="number" min="0" step="0.01"')}
+      ${field("replacement_value", "Replacement value ($)", item?.replacement_value ?? "", 'type="number" min="0" step="0.01" placeholder="defaults to purchased"')}</div>` +
     field("similar_url", "Link to a similar item", item?.similar_url, 'type="url" placeholder="https://"') +
     img("photo", "Photo", item?.image) + img("similar", "Image of similar item", item?.similar_image) +
     (item ? select("room_id", "Room", rooms.map(r => [r.id, r.name]), item.room_id) : ""),
@@ -273,7 +298,7 @@ async function itemForm(room, item) {
     del.type = "button"; del.className = "danger"; del.textContent = "Delete";
     del.onclick = async () => { if (!confirm(`Delete ${item.name}?`)) return;
       await api("DELETE", "/items/" + item.id); d.close(); toast("Item deleted"); route(); };
-    $(".actions", d).prepend(del);
+    $(".dlg-actions", d).prepend(del);
   }
 }
 
@@ -285,7 +310,8 @@ async function route() {
     else if (kind === "room") await roomView(+id);
     else await homesView();
   } catch (e) {
-    app.innerHTML = `<div class="empty">${esc(e.message)} — <a href="#/">back to homes</a></div>`;
+    chrome("Not found", null);
+    app.innerHTML = `<div class="panel"><div class="empty">${esc(e.message)}. <a href="#/">Back to homes</a></div></div>`;
   }
 }
 window.addEventListener("hashchange", route);
