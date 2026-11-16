@@ -31,15 +31,12 @@ th{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--mute
 .thumb{width:44px;height:44px;object-fit:cover;border-radius:var(--r-sm);border:1px solid var(--line);background:var(--surface-2);display:block}
 .sub{color:var(--muted);font-size:12px}
 .preview{max-width:100%;max-height:160px;border-radius:var(--r-sm);border:1px solid var(--line)}
-dialog.modal{border:1px solid var(--line);border-radius:var(--r);background:var(--surface);color:var(--text);
-  box-shadow:var(--shadow);padding:20px;width:min(520px,94vw);max-height:92vh;text-align:left}
-dialog.modal::backdrop{background:rgba(10,14,20,.4)}
-dialog.modal h3{margin:0 0 6px}
-dialog.modal .field{margin-top:10px}
 .two{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 .addr3{display:grid;grid-template-columns:minmax(0,1fr) 110px 120px;gap:10px}
 .err{color:var(--red);min-height:1.2em;margin-top:8px}
-.dlg-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:16px}
+.editor .form-fields{max-width:640px;display:flex;flex-direction:column;gap:10px}
+.form-actions{margin-top:4px}
+.editor a{color:var(--accent)}
 .toast{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);background:var(--head);color:var(--head-text);
   padding:8px 16px;border-radius:999px;opacity:0;transition:opacity .2s;pointer-events:none;z-index:60}
 .toast.show{opacity:1}
@@ -150,7 +147,6 @@ html[data-density="compact"] td .btns button{padding:0 8px}
     <main id="app"></main>
   </div>
 </div>
-<dialog id="dlg" class="modal"></dialog>
 <div class="toast" id="toast" role="status"></div>
 <script>
 "use strict";
@@ -243,21 +239,27 @@ function itemIcons(i) {
 const safeUrl = u => /^https?:\/\/\S+$/i.test(u || "") ? u : null;
 const hostOf = u => { try { return new URL(u).hostname.replace(/^www\./, ""); } catch (e) { return u; } };
 
-/* ---------- dialog helper ---------- */
-function form(title, html, onSubmit, {submit = "Save"} = {}) {
-  const d = $("#dlg");
-  d.innerHTML = `<form method="dialog"><h3>${esc(title)}</h3>${html}
-    <div class="err" role="alert"></div>
-    <div class="dlg-actions"><button type="button" data-x>Cancel</button>
-    <button class="primary">${esc(submit)}</button></div></form>`;
-  $("[data-x]", d).onclick = () => d.close();
-  $("form", d).onsubmit = async e => {
+/* ---------- inline form panel: opens at the top of the page, never as a popup ---------- */
+const closeEditors = () => document.querySelectorAll(".editor").forEach(e => e.remove());
+function form(title, html, onSubmit, {submit = "Save", hint = ""} = {}) {
+  closeEditors();
+  const panel = document.createElement("section");
+  panel.className = "panel editor"; panel.id = "editor";
+  panel.innerHTML = `<div class="panel-head"><h2>${esc(title)}</h2>${hint ? `<span class="sub">${esc(hint)}</span>` : ""}</div>
+    <form class="ins-body"><div class="form-fields">${html}</div><div class="err" role="alert"></div>
+    <div class="btns form-actions"><button class="primary">${esc(submit)}</button>
+    <button type="button" data-x>Cancel</button></div></form>`;
+  app.prepend(panel);
+  $("[data-x]", panel).onclick = () => panel.remove();
+  panel.onkeydown = e => { if (e.key === "Escape") panel.remove(); };
+  $("form", panel).onsubmit = async e => {
     e.preventDefault();
-    try { await onSubmit($("form", d)); d.close(); }
-    catch (err) { $(".err", d).textContent = err.message; }
+    try { await onSubmit($("form", panel)); }
+    catch (err) { $(".err", panel).textContent = err.message; }
   };
-  d.showModal();
-  const first = $("input,select,textarea", d); if (first) first.focus();
+  panel.scrollIntoView({block: "nearest"});
+  const first = $("input,select,textarea", panel); if (first) first.focus();
+  return panel;
 }
 const field = (name, label, v = "", attrs = "", pre = "f") =>
   `<div class="field"><label for="${pre}_${name}">${esc(label)}</label><input id="${pre}_${name}" name="${name}" value="${esc(v)}" ${attrs}></div>`;
@@ -423,9 +425,10 @@ function homeEditorHtml(h) {
   </form>`;
 }
 function showHomeEditor(h) {
-  const old = $("#homeEditor"); if (old) old.remove();
+  closeEditors();
   const panel = document.createElement("section");
   panel.className = "panel editor"; panel.id = "homeEditor"; panel.innerHTML = homeEditorHtml(h);
+  panel.onkeydown = e => { if (e.key === "Escape") panel.remove(); };
   app.prepend(panel);
   const ins = (h && h.insurance) || {};
   let riders = (ins.riders || []).map(r => ({name: r.name, limit: r.limit ?? ""}));
@@ -726,7 +729,7 @@ async function itemForm(room, item) {
     `<div class="field" id="idBlock"><div class="btns">
        <button type="button" class="small" id="idLocal">Identify with ${esc(cfg.ollama.model)}</button>
        ${cfg.anthropic.configured ? '<button type="button" class="small" id="idCloud">Identify with Claude…</button>'
-         : '<span class="sub">Want Claude instead? <a href="#/settings" onclick="$(\'#dlg\').close()">Add your key in Settings</a></span>'}</div>
+         : '<span class="sub">Want Claude instead? <a href="#/settings">Add your key in Settings</a></span>'}</div>
        <div class="sub" id="idMsg" role="status">Choose a photo, then let a model fill in the name, brand and type. You review before saving.</div>
        <a id="idSearch" class="sub" target="_blank" rel="noopener noreferrer" hidden>Search for an equivalent item ↗</a></div>` +
     img("similar", "Image of similar item", item?.similar_image) +
@@ -741,7 +744,7 @@ async function itemForm(room, item) {
         if (imgs[k]) await api("POST", `/items/${saved.id}/image?kind=${k}`, {data: imgs[k]});
       sel.item = saved.id; toast("Item saved"); route();
     });
-  const d = $("#dlg");
+  const d = $("#editor");
   d.querySelectorAll("input[type=file]").forEach(inp => inp.onchange = async () => {
     const f = inp.files[0]; if (!f) return;
     const url = await readFile(f); imgs[inp.dataset.kind] = url;
@@ -778,8 +781,8 @@ async function itemForm(room, item) {
     const del = document.createElement("button");
     del.type = "button"; del.className = "danger"; del.textContent = "Delete";
     del.onclick = async () => { if (!confirm(`Delete ${item.name}?`)) return;
-      await api("DELETE", "/items/" + item.id); d.close(); sel.item = null; toast("Item deleted"); route(); };
-    $(".dlg-actions", d).prepend(del);
+      await api("DELETE", "/items/" + item.id); closeEditors(); sel.item = null; toast("Item deleted"); route(); };
+    $(".form-actions", d).prepend(del);
   }
 }
 
