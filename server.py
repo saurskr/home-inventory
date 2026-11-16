@@ -108,9 +108,12 @@ CREATE TABLE IF NOT EXISTS items (
 CREATE TABLE IF NOT EXISTS home_insurance (
   home_id INTEGER PRIMARY KEY REFERENCES homes(id) ON DELETE CASCADE,
   insurer TEXT NOT NULL DEFAULT '',
+  website TEXT NOT NULL DEFAULT '',
   policy_number TEXT NOT NULL DEFAULT '',
   dwelling_coverage REAL,
   contents_coverage REAL,
+  liability_coverage REAL,
+  riders TEXT NOT NULL DEFAULT '[]',
   deductible REAL,
   annual_premium REAL,
   renewal_date TEXT NOT NULL DEFAULT '',
@@ -150,6 +153,11 @@ def init_storage():
     cols = [r["name"] for r in conn.execute("PRAGMA table_info(items)")]
     if "price_updated_at" not in cols:  # databases created before this column existed
         conn.execute("ALTER TABLE items ADD COLUMN price_updated_at TEXT")
+    icols = [r["name"] for r in conn.execute("PRAGMA table_info(home_insurance)")]
+    for col, ddl in (("website", "TEXT NOT NULL DEFAULT ''"), ("liability_coverage", "REAL"),
+                     ("riders", "TEXT NOT NULL DEFAULT '[]'")):  # insurance tables from earlier versions
+        if col not in icols:
+            conn.execute("ALTER TABLE home_insurance ADD COLUMN %s %s" % (col, ddl))
     hcols = [r["name"] for r in conn.execute("PRAGMA table_info(homes)")]
     for col in ADDRESS_FIELDS:  # homes created before structured US addresses
         if col not in hcols:
@@ -311,7 +319,8 @@ def address_values(b, cur):
 
 
 def list_homes(ctx):
-    return 200, [home_out(r) for r in rows(ctx.db.execute(HOME_SUMMARY + " ORDER BY h.name COLLATE NOCASE"))]
+    homes = [home_out(r) for r in rows(ctx.db.execute(HOME_SUMMARY + " ORDER BY h.name COLLATE NOCASE"))]
+    return 200, attach_insurance(ctx.db, homes)
 
 
 def create_home(ctx):
@@ -323,14 +332,14 @@ def create_home(ctx):
         "INSERT INTO homes (name, address, street, street2, city, state, zip) VALUES (?,?,?,?,?,?,?)",
         (name, legacy, a["street"], a["street2"], a["city"], a["state"], a["zip"]))
     ctx.db.commit()
-    return 201, home_out(one(ctx.db, HOME_SUMMARY + " WHERE h.id = ?", (cur.lastrowid,)))
+    return 201, attach_insurance(ctx.db, [home_out(one(ctx.db, HOME_SUMMARY + " WHERE h.id = ?", (cur.lastrowid,)))])[0]
 
 
 def get_home(ctx, id_):
     r = one(ctx.db, HOME_SUMMARY + " WHERE h.id = ?", (id_,))
     if not r:
         raise ApiError(404, "home not found")
-    return 200, home_out(r)
+    return 200, attach_insurance(ctx.db, [home_out(r)])[0]
 
 
 def update_home(ctx, id_):
@@ -539,32 +548,73 @@ def upload_image(ctx, id_):
     return 200, get_or_404(ctx.db, "items", id_)
 
 
+MAX_RIDERS = 5
 INS_TEXT = ["insurer", "policy_number", "contact", "notes"]
-INS_MONEY = ["dwelling_coverage", "contents_coverage", "deductible", "annual_premium"]
-INS_DEFAULTS = dict({k: "" for k in INS_TEXT}, renewal_date="",
+INS_MONEY = ["dwelling_coverage", "contents_coverage", "liability_coverage", "deductible",
+             "annual_premium"]
+INS_DEFAULTS = dict({k: "" for k in INS_TEXT}, website="", renewal_date="", riders=[],
                     **{k: None for k in INS_MONEY})
+
+
+def parse_riders(b):
+    v = b.get("riders")
+    if not isinstance(v, list):
+        raise ApiError(400, "riders must be a list")
+    if len(v) > MAX_RIDERS:
+        raise ApiError(400, "At most %d riders are allowed" % MAX_RIDERS)
+    out = []
+    for r in v:
+        if not isinstance(r, dict):
+            raise ApiError(400, "each rider must be an object with a name and limit")
+        name = text(r, "name")
+        if not name:
+            raise ApiError(400, "Each rider needs a name")
+        if len(name) > 80:
+            raise ApiError(400, "rider name is too long")
+        out.append({"name": name, "limit": money(r, "limit")})
+    return out
+
+
+def ins_out(row, home_id):
+    """Insurance as the API shows it; a home with no record gets the empty defaults."""
+    if not row:
+        return dict(INS_DEFAULTS, riders=[], home_id=home_id, configured=False, updated_at=None)
+    r = dict(row)
+    r["configured"] = True
+    try:
+        riders = json.loads(r.get("riders") or "[]")
+    except ValueError:
+        riders = []
+    r["riders"] = riders if isinstance(riders, list) else []
+    return r
+
+
+def attach_insurance(conn, homes):
+    by_home = {r["home_id"]: r for r in conn.execute("SELECT * FROM home_insurance")}
+    for h in homes:
+        h["insurance"] = ins_out(by_home.get(h["id"]), h["id"])
+    return homes
 
 
 def get_insurance(ctx, home_id):
     get_or_404(ctx.db, "homes", home_id)
-    r = one(ctx.db, "SELECT * FROM home_insurance WHERE home_id = ?", (home_id,))
-    if not r:
-        return 200, dict(INS_DEFAULTS, home_id=home_id, configured=False, updated_at=None)
-    r["configured"] = True
-    return 200, r
+    return 200, ins_out(one(ctx.db, "SELECT * FROM home_insurance WHERE home_id = ?", (home_id,)), home_id)
 
 
 def put_insurance(ctx, home_id):
     get_or_404(ctx.db, "homes", home_id)
     b = ctx.body
-    cur = one(ctx.db, "SELECT * FROM home_insurance WHERE home_id = ?", (home_id,)) \
-        or dict(INS_DEFAULTS)
+    cur = ins_out(one(ctx.db, "SELECT * FROM home_insurance WHERE home_id = ?", (home_id,)), home_id)
     for k in INS_TEXT:
         if k in b:
             cur[k] = text(b, k)
+    if "website" in b:
+        cur["website"] = url_field(b, "website")
     for k in INS_MONEY:
         if k in b:
             cur[k] = money(b, k)
+    if "riders" in b:
+        cur["riders"] = parse_riders(b)
     if "renewal_date" in b:
         d = text(b, "renewal_date")
         if d:
@@ -574,12 +624,14 @@ def put_insurance(ctx, home_id):
                 raise ApiError(400, "renewal_date must be YYYY-MM-DD")
         cur["renewal_date"] = d
     ctx.db.execute(
-        """INSERT OR REPLACE INTO home_insurance (home_id, insurer, policy_number,
-           dwelling_coverage, contents_coverage, deductible, annual_premium,
-           renewal_date, contact, notes, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
-        (home_id, cur["insurer"], cur["policy_number"], cur["dwelling_coverage"],
-         cur["contents_coverage"], cur["deductible"], cur["annual_premium"],
-         cur["renewal_date"], cur["contact"], cur["notes"], now()))
+        """INSERT OR REPLACE INTO home_insurance (home_id, insurer, website, policy_number,
+           dwelling_coverage, contents_coverage, liability_coverage, riders, deductible,
+           annual_premium, renewal_date, contact, notes, updated_at)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+        (home_id, cur["insurer"], cur["website"], cur["policy_number"], cur["dwelling_coverage"],
+         cur["contents_coverage"], cur["liability_coverage"], json.dumps(cur["riders"]),
+         cur["deductible"], cur["annual_premium"], cur["renewal_date"], cur["contact"],
+         cur["notes"], now()))
     ctx.db.commit()
     return get_insurance(ctx, home_id)
 

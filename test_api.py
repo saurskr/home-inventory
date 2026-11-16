@@ -240,6 +240,66 @@ class ApiTest(ApiBase):
                                                            "state": "NV", "zip": "89501"}, 200)
         self.assertEqual((got["address"], got["legacy_address"]), ("9 Elm St, Reno, NV 89501", ""))
 
+    def test_insurance_website_liability_riders(self):
+        h = self.home()
+        path = "/api/homes/%d/insurance" % h["id"]
+        riders = [{"name": "Jewelry", "limit": 10000}, {"name": "Fine art", "limit": "25000"},
+                  {"name": "Bicycles", "limit": None}]
+        got = self.call("PUT", path, {"insurer": "Acme", "website": "https://acme.example/home",
+                                      "liability_coverage": 300000, "renewal_date": "2027-05-01",
+                                      "riders": riders}, 200)
+        self.assertEqual(got["website"], "https://acme.example/home")
+        self.assertEqual(got["liability_coverage"], 300000)
+        self.assertEqual([(r["name"], r["limit"]) for r in got["riders"]],
+                         [("Jewelry", 10000), ("Fine art", 25000), ("Bicycles", None)])
+        self.call("PUT", path, {"website": "javascript:alert(1)"}, 400)
+        self.call("PUT", path, {"riders": [{"name": "r%d" % i, "limit": 1} for i in range(6)]}, 400)
+        self.call("PUT", path, {"riders": [{"name": "", "limit": 5}]}, 400)
+        self.call("PUT", path, {"riders": [{"name": "x", "limit": -5}]}, 400)
+        self.call("PUT", path, {"riders": "nope"}, 400)
+        five = self.call("PUT", path, {"riders": [{"name": "r%d" % i, "limit": i} for i in range(5)]}, 200)
+        self.assertEqual(len(five["riders"]), 5)
+        kept = self.call("PUT", path, {"insurer": "Other"}, 200)   # riders untouched by other edits
+        self.assertEqual(len(kept["riders"]), 5)
+        self.assertEqual(self.call("PUT", path, {"riders": []}, 200)["riders"], [])
+
+    def test_homes_include_insurance(self):
+        h = self.home("WithIns")
+        bare = self.home("NoIns")
+        self.call("PUT", "/api/homes/%d/insurance" % h["id"],
+                  {"insurer": "Acme", "riders": [{"name": "Jewelry", "limit": 5000}]}, 200)
+        by_name = {x["name"]: x for x in self.call("GET", "/api/homes", expect=200)}
+        self.assertTrue(by_name["WithIns"]["insurance"]["configured"])
+        self.assertEqual(by_name["WithIns"]["insurance"]["riders"][0]["name"], "Jewelry")
+        self.assertFalse(by_name["NoIns"]["insurance"]["configured"])
+        self.assertEqual(by_name["NoIns"]["insurance"]["riders"], [])
+        one = self.call("GET", "/api/homes/%d" % h["id"], expect=200)
+        self.assertEqual(one["insurance"]["insurer"], "Acme")
+        self.assertFalse(bare["insurance"]["configured"])      # create response has the same shape
+
+    def test_migrates_old_insurance_table(self):
+        import sqlite3
+        d = tempfile.mkdtemp()
+        c = sqlite3.connect(os.path.join(d, "inventory.db"))
+        c.executescript("""CREATE TABLE homes (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, address TEXT);
+          CREATE TABLE home_insurance (home_id INTEGER PRIMARY KEY REFERENCES homes(id) ON DELETE CASCADE,
+            insurer TEXT NOT NULL DEFAULT '', policy_number TEXT NOT NULL DEFAULT '', dwelling_coverage REAL,
+            contents_coverage REAL, deductible REAL, annual_premium REAL, renewal_date TEXT NOT NULL DEFAULT '',
+            contact TEXT NOT NULL DEFAULT '', notes TEXT NOT NULL DEFAULT '', updated_at TEXT);
+          INSERT INTO homes (name) VALUES ('H'); INSERT INTO home_insurance (home_id, insurer) VALUES (1, 'Old Co');""")
+        c.commit(); c.close()
+        old = server.DATA_DIR
+        try:
+            server.DATA_DIR = d
+            server.init_storage()
+            conn = server.connect()
+            ins = server.ins_out(conn.execute("SELECT * FROM home_insurance").fetchone(), 1)
+            conn.close()
+            self.assertEqual((ins["insurer"], ins["website"], ins["riders"], ins["liability_coverage"]),
+                             ("Old Co", "", [], None))
+        finally:
+            server.DATA_DIR = old
+
     def test_migrates_old_database(self):
         import sqlite3
         d = tempfile.mkdtemp()

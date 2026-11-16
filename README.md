@@ -22,7 +22,7 @@ Item types: Appliance, Furniture, Electronics, Memorabilia, Media, Collectible, 
 - `GET /meta`
 - `GET|POST /homes`, `GET|PUT|DELETE /homes/:id` Homes take a US address: `street`, `street2`, `city`, `state` (2-letter code, see `us_states` in `GET /meta`), `zip` (12345 or 12345-6789); responses include a formatted `address`. Older free-text addresses still display until replaced.
 - `GET|POST /homes/:id/rooms` (POST `prefill: true` creates template items; room name picks the template)
-- `GET|PUT|DELETE /homes/:id/insurance` (optional per-home policy: insurer, policy number, dwelling and contents coverage, deductible, premium, renewal date, contact, notes; PUT merges the fields you send)
+- `GET|PUT|DELETE /homes/:id/insurance` (optional per-home policy: insurer, website (http/https), policy number, expiry date (`renewal_date`, YYYY-MM-DD), dwelling / contents / liability coverage, deductible, annual premium, up to 5 `riders` of `{name, limit}`, contact, notes; PUT merges the fields you send). `GET /homes` and `GET /homes/:id` include the home's `insurance`
 - `GET|PUT|DELETE /rooms/:id` (PUT with `home_id` moves the room and its items)
 - `GET|POST /rooms/:id/items`, `GET|PUT|DELETE /items/:id`
 - `similar_url` must be http(s). Rooms and homes report purchased and replacement totals.

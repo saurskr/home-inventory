@@ -44,6 +44,29 @@ dialog.modal .field{margin-top:10px}
   padding:8px 16px;border-radius:999px;opacity:0;transition:opacity .2s;pointer-events:none;z-index:60}
 .toast.show{opacity:1}
 .top h1{font-size:18px}
+/* actions row directly under the header */
+.toolbar{max-width:1280px;margin:0 auto;padding:16px 24px 0;display:flex;gap:8px;align-items:center}
+/* home display */
+.grid.homes{grid-template-columns:repeat(auto-fill,minmax(320px,1fr))}
+.hb{display:flex;flex-direction:column;gap:8px}
+.hb h3{margin:0;font-size:16px}
+.hb h4{margin:0 0 4px;font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+.hb-addr{font-size:13px}
+.hb a{color:var(--accent)}
+.hb-ins{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.hb-limits{display:flex;flex-direction:column;gap:8px;padding-top:10px;border-top:1px solid var(--line)}
+.status{--c:var(--grey);display:inline-flex;align-items:center;gap:6px;padding:2px 10px;border-radius:999px;font-size:12px;font-weight:600;color:var(--text);
+  border:1px solid color-mix(in srgb,var(--c) 55%,transparent);background:color-mix(in srgb,var(--c) 14%,transparent)}
+.status .gl{color:var(--c)}
+dl.lim{display:grid;grid-template-columns:1fr auto;gap:3px 12px;margin:0;font-size:13px}
+dl.lim dt{color:var(--muted)}
+dl.lim dd{margin:0;text-align:right;font-variant-numeric:tabular-nums}
+/* inline home editor */
+.editor{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
+.ins-sec{border:1px solid var(--line);border-radius:var(--r-sm);padding:10px 14px}
+.ins-sec>summary{cursor:pointer}
+.subhead{margin:6px 0 0;font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+.rider{display:grid;grid-template-columns:minmax(0,1fr) 150px auto;gap:8px;margin-bottom:8px}
 /* density toggle */
 .seg{display:inline-flex}
 .seg button{border-radius:0;padding:4px 10px;font-size:12px}
@@ -107,7 +130,7 @@ html[data-density="compact"] td .btns button{padding:0 8px}
 .cov.gap{border-color:var(--amber)}
 .cov b{white-space:nowrap}
 @media(max-width:1000px){.split{grid-template-columns:1fr}.pane{position:static}.ins-grid{grid-template-columns:1fr 1fr}}
-@media(max-width:560px){.two,.ins-grid,.addr3{grid-template-columns:1fr}.top{padding:10px 14px}main{padding:12px 14px 50px}}
+@media(max-width:560px){.two,.ins-grid,.addr3{grid-template-columns:1fr}.rider{grid-template-columns:minmax(0,1fr) 100px auto}.top{padding:10px 14px}.toolbar{padding:12px 14px 0}main{padding:12px 14px 50px}}
 </style>
 </head>
 <body>
@@ -122,8 +145,8 @@ html[data-density="compact"] td .btns button{padding:0 8px}
     <header class="top"><h1 id="title">Homes</h1>
       <div class="top-actions">
         <div class="seg" role="group" aria-label="List density">
-          <button type="button" data-d="comfortable">Comfortable</button><button type="button" data-d="compact">Compact</button></div>
-        <button class="primary" id="add" type="button" hidden></button></div></header>
+          <button type="button" data-d="comfortable">Comfortable</button><button type="button" data-d="compact">Compact</button></div></div></header>
+    <div class="toolbar" id="toolbar" hidden><button class="primary" id="add" type="button"></button></div>
     <main id="app"></main>
   </div>
 </div>
@@ -236,12 +259,12 @@ function form(title, html, onSubmit, {submit = "Save"} = {}) {
   d.showModal();
   const first = $("input,select,textarea", d); if (first) first.focus();
 }
-const field = (name, label, v = "", attrs = "") =>
-  `<div class="field"><label for="f_${name}">${esc(label)}</label><input id="f_${name}" name="${name}" value="${esc(v)}" ${attrs}></div>`;
-const area = (name, label, v = "") =>
-  `<div class="field"><label for="f_${name}">${esc(label)}</label><textarea id="f_${name}" name="${name}" rows="2">${esc(v)}</textarea></div>`;
-const select = (name, label, opts, cur, blank) =>
-  `<div class="field"><label for="f_${name}">${esc(label)}</label><select id="f_${name}" name="${name}">` +
+const field = (name, label, v = "", attrs = "", pre = "f") =>
+  `<div class="field"><label for="${pre}_${name}">${esc(label)}</label><input id="${pre}_${name}" name="${name}" value="${esc(v)}" ${attrs}></div>`;
+const area = (name, label, v = "", pre = "f") =>
+  `<div class="field"><label for="${pre}_${name}">${esc(label)}</label><textarea id="${pre}_${name}" name="${name}" rows="2">${esc(v)}</textarea></div>`;
+const select = (name, label, opts, cur, blank, pre = "f") =>
+  `<div class="field"><label for="${pre}_${name}">${esc(label)}</label><select id="${pre}_${name}" name="${name}">` +
   (blank ? `<option value="">${esc(blank)}</option>` : "") +
   opts.map(([v, t]) => `<option value="${esc(v)}" ${String(v) === String(cur) ? "selected" : ""}>${esc(t)}</option>`).join("") +
   `</select></div>`;
@@ -269,59 +292,211 @@ async function buildNav(homeId, roomId, settings = false) {
 }
 function chrome(title, addLabel, onAdd) {
   $("#title").textContent = title; document.title = title + " · Home Inventory";
-  const b = $("#add"); b.hidden = !addLabel; b.textContent = addLabel || ""; b.onclick = onAdd || null;
+  const b = $("#add"); $("#toolbar").hidden = !addLabel; b.textContent = addLabel || ""; b.onclick = onAdd || null;
 }
 const stats = list => `<div class="stats">${list.map(([k, v]) => `<div class="stat"><span>${esc(k)}</span><b>${v}</b></div>`).join("")}</div>`;
+
+/* ---------- views ---------- */
+/* ---------- per-home display choices (show/hide address and limits), remembered in this browser ---------- */
+let prefs = {};
+try { prefs = JSON.parse(localStorage.getItem("prefs") || "{}") || {}; } catch (e) {}
+const pref = (kind, id, def) => (prefs[kind] && prefs[kind][id] !== undefined) ? prefs[kind][id] : def;
+function setPref(kind, id, v) {
+  (prefs[kind] = prefs[kind] || {})[id] = v;
+  try { localStorage.setItem("prefs", JSON.stringify(prefs)); } catch (e) {}
+}
+
+/* ---------- insurance: status, limits ---------- */
+const ymd = s => { const m = /^(\d{4})-(\d\d)-(\d\d)$/.exec(s || ""); return m ? new Date(+m[1], +m[2] - 1, +m[3]) : null; };
+const fmtYmd = s => { const d = ymd(s); return d ? d.toLocaleDateString(undefined, {year: "numeric", month: "short", day: "numeric"}) : ""; };
+function insStatus(ins) {
+  if (!ins || !ins.configured) return {icon: "ℹ", text: "No insurance on file", c: "var(--grey)"};
+  const d = ymd(ins.renewal_date);
+  if (!d) return {icon: "ℹ", text: "Insured · no expiry date", c: "var(--blue)"};
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const days = Math.round((d - today) / 864e5), when = fmtYmd(ins.renewal_date);
+  if (days < 0) return {icon: "✖", text: "Expired " + when, c: "var(--red)"};
+  if (days <= 30) return {icon: "⚠", text: `Expires in ${days} day${days === 1 ? "" : "s"} (${when})`, c: "var(--amber)"};
+  return {icon: "✔", text: "Active · expires " + when, c: "var(--green)"};
+}
+function coverageGap(h) {
+  const ins = h.insurance;
+  if (!ins || ins.contents_coverage == null || !h.total_replacement) return "";  // nothing to compare yet
+  const diff = ins.contents_coverage - h.total_replacement;
+  return diff >= 0
+    ? `<div class="cov ok"><span aria-hidden="true">✔</span><div>Contents coverage covers the ${money(h.total_replacement)} inventory value, with ${money(diff)} to spare.</div></div>`
+    : `<div class="cov gap"><span aria-hidden="true">⚠</span><div><b>Contents coverage is short by ${money(-diff)}</b> against the ${money(h.total_replacement)} inventory value.</div></div>`;
+}
+function limitsHtml(h) {
+  const ins = h.insurance;
+  if (!ins || !ins.configured) return `<p class="muted" style="margin:0">No coverage limits recorded. Choose Edit to add insurance.</p>`;
+  const row = (k, v) => v == null ? "" : `<dt>${k}</dt><dd>${money(v)}</dd>`;
+  const main = row("Dwelling", ins.dwelling_coverage) + row("Contents", ins.contents_coverage) +
+    row("Liability", ins.liability_coverage) + row("Deductible", ins.deductible) + row("Annual premium", ins.annual_premium);
+  const riders = ins.riders || [];
+  return (main || riders.length ? "" : `<p class="muted" style="margin:0">No limits entered yet.</p>`) +
+    (main ? `<dl class="lim">${main}</dl>` : "") +
+    (riders.length ? `<div><h4>Riders</h4><dl class="lim">${riders.map(r =>
+      `<dt>${esc(r.name)}</dt><dd>${r.limit == null ? "—" : money(r.limit)}</dd>`).join("")}</dl></div>` : "") +
+    (ins.policy_number ? `<div class="sub">Policy # ${esc(ins.policy_number)}</div>` : "") +
+    (ins.contact ? `<div class="sub">Agent: ${esc(ins.contact)}</div>` : "") + coverageGap(h);
+}
+
+/* ---------- the home display: name, address (show/hide), insurance status, limits (show/hide) ---------- */
+function homeBlock(h, page) {
+  const ins = h.insurance, st = insStatus(ins);
+  const showAddr = pref("addr", h.id, true), showLim = pref("lim", h.id, false);
+  const site = safeUrl(ins && ins.website);
+  const who = ins && ins.insurer ? esc(ins.insurer) : (site ? esc(hostOf(site)) : "");
+  return (page ? "" : `<h3>${esc(h.name)}</h3>`) +
+    `<div class="hb-addr${showAddr ? "" : " muted"}">${showAddr ? esc(h.address || "No address") : "Address hidden"}</div>` +
+    (page ? "" : `<div class="muted">${h.room_count} rooms · ${h.item_count} items · replacement <b style="color:var(--text)">${money(h.total_replacement)}</b></div>`) +
+    `<div class="hb-ins"><span class="status" style="--c:${st.c}"><span class="gl" aria-hidden="true">${st.icon}</span>${esc(st.text)}</span>` +
+    (who ? `<span class="sub">${site ? `<a href="${esc(site)}" target="_blank" rel="noopener noreferrer">${who} ↗</a>` : who}</span>` : "") + `</div>` +
+    (showLim ? `<div class="hb-limits">${limitsHtml(h)}</div>` : "") +
+    `<div class="btns">
+      <button type="button" class="small" data-act="addr" aria-expanded="${showAddr}">${showAddr ? "Hide address" : "Show address"}</button>
+      <button type="button" class="small" data-act="lim" aria-expanded="${showLim}">${showLim ? "Hide limits" : "Show limits"}</button>
+      <button type="button" class="small" data-act="edit">Edit</button>
+      ${page ? "" : '<button type="button" class="small danger" data-act="del">Delete</button>'}</div>`;
+}
+function bindHome(el, h, opts) {
+  el.addEventListener("click", e => {
+    const b = e.target.closest("button[data-act]");
+    if (b) {
+      const act = b.dataset.act;
+      if (act === "addr" || act === "lim") {
+        setPref(act, h.id, !pref(act, h.id, act === "addr"));
+        el.innerHTML = homeBlock(h, opts.page);
+        const again = el.querySelector(`[data-act="${act}"]`); if (again) again.focus();
+      } else if (act === "edit") opts.onEdit();
+      else if (act === "del") opts.onDelete();
+      return;
+    }
+    if (!e.target.closest("a") && opts.onOpen) opts.onOpen();
+  });
+}
+async function deleteHome(h) {
+  if (!confirm(`Delete "${h.name}" with its ${h.room_count} rooms and ${h.item_count} items?`)) return;
+  await api("DELETE", "/homes/" + h.id); toast("Home deleted"); route();
+}
+
+/* ---------- Add / Edit home: an inline screen (not a popup) with optional insurance ---------- */
+function homeEditorHtml(h) {
+  const ins = (h && h.insurance) || {}, has = !!ins.configured;
+  const states = (META.us_states || []).map(x => [x.code, `${x.code} · ${x.name}`]);
+  const num = (k, label) => field(k, label, ins[k] ?? "", 'type="number" min="0" step="0.01"', "h");
+  return `<div class="panel-head"><h2>${h ? "Edit home" : "Add home"}</h2><span class="sub">Only the name is required</span></div>
+  <form class="ins-body" id="homeForm">
+    ${field("name", "Home name", h?.name, 'required placeholder="e.g. Main House"', "h")}
+    ${h?.legacy_address ? `<p class="sub" style="margin:0">Previously saved address: <b>${esc(h.legacy_address)}</b>. Fill in the fields below to replace it.</p>` : ""}
+    ${field("street", "Street address", h?.street, 'autocomplete="address-line1" placeholder="123 Main St"', "h")}
+    ${field("street2", "Apt, suite, unit (optional)", h?.street2, 'autocomplete="address-line2"', "h")}
+    <div class="addr3">${field("city", "City", h?.city, 'autocomplete="address-level2"', "h")}
+      ${select("state", "State", states, h?.state, "—", "h")}
+      ${field("zip", "ZIP code", h?.zip, 'inputmode="numeric" autocomplete="postal-code" pattern="\\d{5}(-?\\d{4})?" maxlength="10" placeholder="12345" title="5 digits, or ZIP+4 like 12345-6789"', "h")}</div>
+    <details class="ins-sec" id="insSec" ${has ? "open" : ""}>
+      <summary><b>Home insurance</b> <span class="muted">(optional)</span></summary>
+      <div class="ins-body" style="padding:12px 0 0">
+        <div class="ins-grid">
+          ${field("insurer", "Insurance company", ins.insurer, 'autocomplete="off"', "h")}
+          <div class="field" style="grid-column:span 2"><label for="h_website">Company website</label>
+            <input id="h_website" name="website" type="url" placeholder="https://" value="${esc(ins.website)}"></div>
+          ${field("policy_number", "Policy number", ins.policy_number, "", "h")}
+          ${field("renewal_date", "Policy expiry date", ins.renewal_date, 'type="date"', "h")}
+          ${num("annual_premium", "Annual premium ($)")}
+        </div>
+        <h4 class="subhead">Coverage limits</h4>
+        <div class="ins-grid">${num("dwelling_coverage", "Dwelling ($)")}${num("contents_coverage", "Contents ($)")}
+          ${num("liability_coverage", "Liability ($)")}${num("deductible", "Deductible ($)")}</div>
+        <h4 class="subhead">Riders <span class="muted">(extra coverage, up to 5)</span></h4>
+        <div id="riders"></div>
+        <div class="btns"><button type="button" class="small" id="addRider"></button></div>
+        <div class="ins-grid">${field("contact", "Agent / contact", ins.contact, "", "h")}
+          <div class="field" style="grid-column:span 2"><label for="h_notes">Notes</label>
+            <textarea id="h_notes" name="notes" rows="2">${esc(ins.notes)}</textarea></div></div>
+        <div class="btns"><button type="button" class="small danger" id="clearIns">Clear insurance fields</button></div>
+      </div>
+    </details>
+    <div class="err" id="homeErr" role="alert"></div>
+    <div class="btns"><button class="primary" type="submit">Save home</button><button type="button" id="homeCancel">Cancel</button></div>
+  </form>`;
+}
+function showHomeEditor(h) {
+  const old = $("#homeEditor"); if (old) old.remove();
+  const panel = document.createElement("section");
+  panel.className = "panel editor"; panel.id = "homeEditor"; panel.innerHTML = homeEditorHtml(h);
+  app.prepend(panel);
+  const ins = (h && h.insurance) || {};
+  let riders = (ins.riders || []).map(r => ({name: r.name, limit: r.limit ?? ""}));
+  const box = $("#riders", panel), addBtn = $("#addRider", panel), f = $("#homeForm", panel), err = $("#homeErr", panel);
+  const drawRiders = () => {
+    box.innerHTML = riders.map((r, i) => `<div class="rider">
+      <input aria-label="Rider ${i + 1} name" data-i="${i}" data-k="name" placeholder="e.g. Jewelry &amp; watches" value="${esc(r.name)}">
+      <input aria-label="Rider ${i + 1} limit ($)" data-i="${i}" data-k="limit" type="number" min="0" step="0.01" placeholder="Limit ($)" value="${esc(r.limit)}">
+      <button type="button" class="small" data-rm="${i}" aria-label="Remove rider ${i + 1}">✕</button></div>`).join("");
+    addBtn.disabled = riders.length >= 5; addBtn.textContent = `+ Add rider (${riders.length}/5)`;
+  };
+  box.oninput = e => { if (e.target.dataset.i !== undefined) riders[+e.target.dataset.i][e.target.dataset.k] = e.target.value; };
+  box.onclick = e => { const b = e.target.closest("[data-rm]"); if (b) { riders.splice(+b.dataset.rm, 1); drawRiders(); } };
+  addBtn.onclick = () => {
+    if (riders.length >= 5) return;
+    riders.push({name: "", limit: ""}); drawRiders();
+    const last = box.querySelectorAll('input[data-k="name"]'); last[last.length - 1].focus();
+  };
+  drawRiders();
+  $("#clearIns", panel).onclick = () => {
+    for (const k of ["insurer", "website", "policy_number", "renewal_date", "annual_premium", "dwelling_coverage",
+      "contents_coverage", "liability_coverage", "deductible", "contact", "notes"]) f.elements[k].value = "";
+    riders = []; drawRiders();
+  };
+  $("#homeCancel", panel).onclick = () => panel.remove();
+  let current = h;  // after a first successful save, a retry updates instead of creating a duplicate
+  f.onsubmit = async e => {
+    e.preventDefault(); err.textContent = "";
+    const g = k => f.elements[k].value.trim();
+    try {
+      const rows = riders.filter(r => r.name.trim() || String(r.limit).trim());
+      if (rows.some(r => !r.name.trim())) throw new Error("Each rider needs a name.");
+      const body = {name: g("name")};
+      for (const k of ["street", "street2", "city", "state", "zip"]) body[k] = g(k);
+      current = current ? await api("PUT", "/homes/" + current.id, body) : await api("POST", "/homes", body);
+      const insBody = {riders: rows.map(r => ({name: r.name.trim(), limit: String(r.limit).trim()}))};
+      for (const k of ["insurer", "website", "policy_number", "renewal_date", "annual_premium", "dwelling_coverage",
+        "contents_coverage", "liability_coverage", "deductible", "contact", "notes"]) insBody[k] = g(k);
+      const any = rows.length || Object.entries(insBody).some(([k, v]) => k !== "riders" && v);
+      if (any) await api("PUT", `/homes/${current.id}/insurance`, insBody);
+      else if (current.insurance && current.insurance.configured) await api("DELETE", `/homes/${current.id}/insurance`);
+      toast("Home saved"); route();
+    } catch (ex) { err.textContent = ex.message; }
+  };
+  panel.scrollIntoView({block: "nearest"});
+  $("#h_name", panel).focus();
+}
 
 /* ---------- views ---------- */
 async function homesView() {
   const homes = await api("GET", "/homes");
   await buildNav(null, null);
-  chrome("Homes", "+ Add home", () => homeForm());
-  app.innerHTML = homes.length ? `<div class="grid">${homes.map(h => `
-      <div class="card tile" data-id="${h.id}">
-        <h3>${esc(h.name)}</h3><div class="sub">${esc(h.address || "No address")}</div>
-        <div>${h.room_count} rooms · ${h.item_count} items</div>
-        <div class="muted">Replacement value <b style="color:var(--text)">${money(h.total_replacement)}</b></div>
-        <div class="btns"><button class="small" data-edit="${h.id}">Edit</button>
-        <button class="small danger" data-del="${h.id}">Delete</button></div>
-      </div>`).join("")}</div>`
-    : `<div class="panel"><div class="empty">No homes yet. Add your first home to start cataloging. Everything stays on this computer.</div></div>`;
-  app.querySelectorAll(".tile").forEach(c => c.onclick = e => {
-    if (e.target.closest("button")) return; location.hash = "#/home/" + c.dataset.id; });
-  app.querySelectorAll("[data-edit]").forEach(b => b.onclick = () =>
-    homeForm(homes.find(h => h.id == b.dataset.edit)));
-  app.querySelectorAll("[data-del]").forEach(b => b.onclick = async () => {
-    const h = homes.find(h => h.id == b.dataset.del);
-    if (!confirm(`Delete "${h.name}" with its ${h.room_count} rooms and ${h.item_count} items?`)) return;
-    await api("DELETE", "/homes/" + h.id); toast("Home deleted"); route();
+  chrome("Homes", "+ Add home", () => showHomeEditor(null));
+  app.innerHTML = homes.length ? `<div class="grid homes">${homes.map(h =>
+      `<div class="card tile hb" data-id="${h.id}">${homeBlock(h, false)}</div>`).join("")}</div>`
+    : `<div class="panel"><div class="empty">No homes yet. Use <b>+ Add home</b> above to start cataloging. Everything stays on this computer.</div></div>`;
+  app.querySelectorAll(".hb").forEach(el => {
+    const h = homes.find(x => x.id == el.dataset.id);
+    bindHome(el, h, {onOpen: () => { location.hash = "#/home/" + h.id; }, onEdit: () => showHomeEditor(h), onDelete: () => deleteHome(h)});
   });
-}
-function homeForm(h) {
-  const states = (META.us_states || []).map(x => [x.code, `${x.code} · ${x.name}`]);
-  form(h ? "Edit home" : "Add home",
-    field("name", "Home name", h?.name, 'required placeholder="e.g. Main House"') +
-    (h?.legacy_address ? `<p class="sub" style="margin:8px 0 0">Previously saved address: <b>${esc(h.legacy_address)}</b>. Fill in the fields below to replace it.</p>` : "") +
-    field("street", "Street address", h?.street, 'autocomplete="address-line1" placeholder="123 Main St"') +
-    field("street2", "Apt, suite, unit (optional)", h?.street2, 'autocomplete="address-line2"') +
-    `<div class="addr3">${field("city", "City", h?.city, 'autocomplete="address-level2"')}` +
-    `${select("state", "State", states, h?.state, "—")}` +
-    `${field("zip", "ZIP code", h?.zip, 'inputmode="numeric" autocomplete="postal-code" pattern="\\d{5}(-?\\d{4})?" maxlength="10" placeholder="12345" title="5 digits, or ZIP+4 like 12345-6789"')}</div>`,
-    async f => {
-      const b = {name: val(f, "name")};
-      for (const k of ["street", "street2", "city", "state", "zip"]) b[k] = val(f, k);
-      h ? await api("PUT", "/homes/" + h.id, b) : await api("POST", "/homes", b); route();
-    });
 }
 
 async function homeView(id) {
-  const [home, rooms, ins] = await Promise.all([api("GET", "/homes/" + id), api("GET", `/homes/${id}/rooms`), api("GET", `/homes/${id}/insurance`)]);
+  const [home, rooms] = await Promise.all([api("GET", "/homes/" + id), api("GET", `/homes/${id}/rooms`)]);
   await buildNav(id, null);
   chrome(home.name, "+ Add room", () => roomAddForm(id));
   const tp = rooms.reduce((s, r) => s + r.total_purchased, 0), tr = rooms.reduce((s, r) => s + r.total_replacement, 0);
-  app.innerHTML = `<div class="crumbs"><a href="#/">Homes</a> / ${esc(home.name)}${home.address ? " · " + esc(home.address) : ""}</div>
+  app.innerHTML = `<div class="crumbs"><a href="#/">Homes</a> / ${esc(home.name)}</div>
     ${stats([["Rooms", home.room_count], ["Items", home.item_count],
       ["Purchased", money(home.total_purchased)], ["Home value (replacement)", money(home.total_replacement)]])}
+    <section class="panel"><div class="pane-body hb" id="homeHero">${homeBlock(home, true)}</div></section>
     <section class="panel"><div class="panel-head"><h2>Rooms</h2></div>
     ${rooms.length ? `<div class="table-wrap"><table><thead><tr><th>Room</th><th class="num">Items</th>
       <th class="num">Purchased</th><th class="num">Replacement</th><th></th></tr></thead><tbody>
@@ -332,8 +507,8 @@ async function homeView(id) {
         <button class="small danger" data-del="${r.id}">Delete</button></div></td></tr>`).join("")}
       </tbody><tfoot><tr><td>Home total</td><td class="num">${rooms.reduce((s, r) => s + r.item_count, 0)}</td>
         <td class="num">${money(tp)}</td><td class="num">${money(tr)}</td><td></td></tr></tfoot></table></div>`
-      : `<div class="empty">No rooms yet. Add one. Common rooms can be pre-filled with typical items.</div>`}</section>
-    ${insuranceSection(home, ins)}`;
+      : `<div class="empty">No rooms yet. Use <b>+ Add room</b> above. Common rooms can be pre-filled with typical items.</div>`}</section>`;
+  bindHome($("#homeHero"), home, {page: true, onEdit: () => showHomeEditor(home)});
   const go = tr => { location.hash = "#/room/" + tr.dataset.id; };
   app.querySelectorAll("tbody tr[data-id]").forEach(tr => {
     tr.onclick = e => { if (!e.target.closest("button")) go(tr); };
@@ -346,66 +521,6 @@ async function homeView(id) {
     if (!confirm(`Delete room "${r.name}" and its ${r.item_count} items?`)) return;
     await api("DELETE", "/rooms/" + r.id); toast("Room deleted"); route();
   });
-  wireInsurance(home);
-}
-
-/* ---------- home insurance (optional) ---------- */
-let insOpen = false;
-function insuranceSummary(ins) {
-  if (!ins.configured) return "Not set up. Add policy and coverage details.";
-  return [ins.insurer, ins.contents_coverage != null ? "Contents " + money(ins.contents_coverage) : "",
-    ins.renewal_date ? "Renews " + ins.renewal_date : ""].filter(Boolean).join(" · ") || "Saved";
-}
-function coverageNote(home, ins) {
-  const out = [];
-  if (ins.configured && ins.contents_coverage != null) {
-    const diff = ins.contents_coverage - home.total_replacement;
-    out.push(diff >= 0
-      ? `<div class="cov ok"><span aria-hidden="true">✔</span><div><b>Contents coverage is enough.</b> ${money(ins.contents_coverage)} covers the ${money(home.total_replacement)} replacement value, with ${money(diff)} to spare.</div></div>`
-      : `<div class="cov gap"><span aria-hidden="true">⚠</span><div><b>Contents coverage is short by ${money(-diff)}.</b> The inventory's replacement value is ${money(home.total_replacement)} but coverage is ${money(ins.contents_coverage)}.</div></div>`);
-  } else if (ins.configured) {
-    out.push(`<div class="cov"><span aria-hidden="true">ℹ</span><div>Add a contents coverage amount to compare it with the ${money(home.total_replacement)} replacement value.</div></div>`);
-  }
-  if (ins.renewal_date && ins.renewal_date < new Date().toISOString().slice(0, 10))
-    out.push(`<div class="cov gap"><span aria-hidden="true">⚠</span><div><b>Renewal date has passed</b> (${esc(ins.renewal_date)}). Check the policy is current.</div></div>`);
-  return out.join("");
-}
-function insuranceSection(home, ins) {
-  const n = (k, label, extra = "") => `<div class="field"><label for="i_${k}">${label}</label>
-    <input id="i_${k}" name="${k}" type="number" min="0" step="0.01" value="${esc(ins[k] ?? "")}" ${extra}></div>`;
-  const t = (k, label, extra = "", cls = "") => `<div class="field ${cls}"><label for="i_${k}">${label}</label>
-    <input id="i_${k}" name="${k}" value="${esc(ins[k])}" ${extra}></div>`;
-  return `<details class="panel ins" ${insOpen ? "open" : ""}><summary><h2>Insurance <span class="muted">(optional)</span></h2>
-    <span class="peek">${esc(insuranceSummary(ins))}</span></summary>
-    <form class="ins-body" id="insForm">
-      <div id="covNote">${coverageNote(home, ins)}</div>
-      <div class="ins-grid">
-        ${t("insurer", "Insurer")}${t("policy_number", "Policy number")}${t("renewal_date", "Renewal date", 'type="date"')}
-        ${n("dwelling_coverage", "Dwelling coverage ($)")}${n("contents_coverage", "Contents coverage ($)")}${n("deductible", "Deductible ($)")}
-        ${n("annual_premium", "Annual premium ($)")}${t("contact", "Agent / contact", "", "")}
-        <div class="field full"><label for="i_notes">Notes</label><textarea id="i_notes" name="notes" rows="2">${esc(ins.notes)}</textarea></div>
-      </div>
-      <div class="err" id="insErr" role="alert"></div>
-      <div class="btns"><button class="primary" type="submit">Save insurance</button>
-        ${ins.configured ? '<button class="danger" type="button" id="insClear">Clear</button>' : ""}</div>
-    </form></details>`;
-}
-function wireInsurance(home) {
-  const d = $(".ins"); if (!d) return;
-  d.addEventListener("toggle", () => { insOpen = d.open; });
-  $("#insForm").onsubmit = async e => {
-    e.preventDefault(); const f = e.target;
-    const body = {};
-    for (const k of ["insurer", "policy_number", "renewal_date", "contact", "notes", "dwelling_coverage", "contents_coverage", "deductible", "annual_premium"])
-      body[k] = f.elements[k].value;
-    try { await api("PUT", `/homes/${home.id}/insurance`, body); toast("Insurance saved"); route(); }
-    catch (err) { $("#insErr").textContent = err.message; }
-  };
-  const c = $("#insClear");
-  if (c) c.onclick = async () => {
-    if (!confirm("Clear all insurance details for this home?")) return;
-    await api("DELETE", `/homes/${home.id}/insurance`); toast("Insurance cleared"); route();
-  };
 }
 
 function roomAddForm(homeId) {
