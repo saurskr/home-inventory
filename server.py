@@ -15,7 +15,7 @@ import uuid
 import linkinfo
 import receipt_module as rm
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, unquote, urlparse
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 STATIC_DIR = os.path.join(BASE_DIR, "static")
@@ -116,6 +116,9 @@ CREATE TABLE IF NOT EXISTS items (
   similar_image TEXT,
   price_updated_at TEXT,
   source TEXT NOT NULL DEFAULT 'manual'
+);
+CREATE TABLE IF NOT EXISTS categories (
+  name TEXT PRIMARY KEY COLLATE NOCASE
 );
 CREATE TABLE IF NOT EXISTS home_insurance (
   home_id INTEGER PRIMARY KEY REFERENCES homes(id) ON DELETE CASCADE,
@@ -293,12 +296,53 @@ def url_field(body, key):
     return v
 
 
-def check_type(v):
+CATEGORY_MAX = 40
+MAX_CUSTOM_CATEGORIES = 50
+
+
+def custom_types(conn):
+    return [r["name"] for r in conn.execute("SELECT name FROM categories ORDER BY name")]
+
+
+def all_types(conn):
+    return ITEM_TYPES + custom_types(conn)
+
+
+def check_type(conn, v):
     if v in (None, ""):
         return None
-    if v not in ITEM_TYPES:
-        raise ApiError(400, "item_type must be one of: " + ", ".join(ITEM_TYPES))
-    return v
+    types = all_types(conn)
+    match = next((t for t in types if t.lower() == str(v).lower()), None)
+    if not match:
+        raise ApiError(400, "item_type must be one of: " + ", ".join(types))
+    return match
+
+
+def create_category(ctx):
+    name = " ".join(text(ctx.body, "name", True).split())
+    if len(name) > CATEGORY_MAX:
+        raise ApiError(400, "Category name is limited to %d characters." % CATEGORY_MAX)
+    if name.lower() in [t.lower() for t in all_types(ctx.db)] + ["other", "consumable"]:
+        raise ApiError(409, "A category named '%s' already exists." % name)
+    if len(custom_types(ctx.db)) >= MAX_CUSTOM_CATEGORIES:
+        raise ApiError(400, "You can add up to %d custom categories." % MAX_CUSTOM_CATEGORIES)
+    ctx.db.execute("INSERT INTO categories (name) VALUES (?)", (name,))
+    ctx.db.commit()
+    return 201, {"name": name, "item_types": all_types(ctx.db)}
+
+
+def delete_category(ctx, name):
+    name = unquote(str(name))
+    row = one(ctx.db, "SELECT name FROM categories WHERE name = ?", (name,))
+    if not row:
+        raise ApiError(404, "category not found (built-in categories cannot be removed)")
+    used = one(ctx.db, "SELECT COUNT(*) AS n FROM items WHERE item_type = ? COLLATE NOCASE", (row["name"],))["n"]
+    if used:
+        raise ApiError(409, "%d item%s still use '%s'. Change them first." %
+                       (used, "" if used == 1 else "s", row["name"]))
+    ctx.db.execute("DELETE FROM categories WHERE name = ?", (row["name"],))
+    ctx.db.commit()
+    return 200, {"deleted": row["name"], "item_types": all_types(ctx.db)}
 
 
 def get_or_404(conn, table, id_):
@@ -311,7 +355,8 @@ def get_or_404(conn, table, id_):
 # ---------- handlers ----------
 
 def meta(ctx):
-    return 200, {"item_types": ITEM_TYPES, "conditions": CONDITIONS, "sources": SOURCES,
+    return 200, {"item_types": all_types(ctx.db), "builtin_types": ITEM_TYPES,
+                 "conditions": CONDITIONS, "sources": SOURCES,
                  "us_states": [{"code": c, "name": n} for c, n in US_STATES],
                  "room_templates": {k: [{"name": n, "item_type": t} for n, t in v]
                                     for k, v in ROOM_TEMPLATES.items()}}
@@ -506,7 +551,7 @@ def insert_item(conn, room_id, b, source="manual"):
            price_updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
         (room_id, text(b, "name", True), description_field(b), text(b, "brand"), model_field(b),
          date_field(b, "purchased_date"), condition_field(b), purchased, replacement, url_field(b, "similar_url"),
-         check_type(b.get("item_type")), src, stamp))
+         check_type(conn, b.get("item_type")), src, stamp))
     conn.execute("UPDATE items SET inv_no = ? WHERE id = ?",
                  ("INV-%06d" % cur.lastrowid, cur.lastrowid))
     return cur.lastrowid
@@ -550,7 +595,7 @@ def update_item(ctx, id_):
     if "similar_url" in b:
         f["similar_url"] = url_field(b, "similar_url")
     if "item_type" in b:
-        f["item_type"] = check_type(b["item_type"])
+        f["item_type"] = check_type(ctx.db, b["item_type"])
     if "purchased_value" in b:
         v = money(b, "purchased_value")
         f["purchased_value"] = v if v is not None else 0
@@ -817,26 +862,34 @@ def http_json(method, url, payload=None, headers=None, timeout=60, local=False):
         raise ProviderError(None, str(e))
 
 
-ITEM_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "name": {"type": "string"},
-        "brand": {"type": "string"},
-        "model_number": {"type": "string"},
-        "item_type": {"type": "string", "enum": ITEM_TYPES + ["Other"]},
-        "description": {"type": "string"},
-        "search_query": {"type": "string"},
-    },
-    "required": ["name", "brand", "model_number", "item_type", "description", "search_query"],
-}
+def item_schema(types):
+    return {
+        "type": "object",
+        "properties": {
+            "name": {"type": "string"},
+            "brand": {"type": "string"},
+            "model_number": {"type": "string"},
+            "item_type": {"type": "string", "enum": types + ["Other"]},
+            "description": {"type": "string"},
+            "search_query": {"type": "string"},
+        },
+        "required": ["name", "brand", "model_number", "item_type", "description", "search_query"],
+    }
 
-PROMPT = (
+
+def item_prompt(types):
+    return PROMPT_HEAD + "- item_type: one of " + ", ".join(types) + ", or Other.\n" + PROMPT_TAIL
+
+
+PROMPT_HEAD = (
     "You are cataloging household belongings for a home inventory. Look at the photo and "
     "identify the single main item. Answer with the requested fields only.\n"
     "- name: short common name, e.g. 'Stand Mixer'.\n"
     "- brand: the manufacturer only if a logo or text shows it or you are certain; otherwise ''.\n"
     "- model_number: the model number only if it is printed on the item or its label; otherwise ''.\n"
-    "- item_type: one of " + ", ".join(ITEM_TYPES) + ", or Other.\n"
+    )
+
+PROMPT_TAIL = (
     "- description: one factual sentence of at most %d characters (colour, material, size). "
     "Do not guess details you cannot see.\n" % DESCRIPTION_MAX +
     "- search_query: a web search query that would find a comparable replacement.")
@@ -846,7 +899,7 @@ def clean_str(v, limit):
     return v.strip()[:limit] if isinstance(v, str) else ""
 
 
-def parse_item(content):
+def parse_item(content, types=None):
     if isinstance(content, str):
         try:
             content = json.loads(content)
@@ -859,7 +912,7 @@ def parse_item(content):
     if not isinstance(content, dict) or not clean_str(content.get("name"), 120):
         raise ApiError(502, "The model did not return a usable item. Try again or use a clearer photo.")
     t = clean_str(content.get("item_type"), 40)
-    t = next((x for x in ITEM_TYPES if x.lower() == t.lower()), None)
+    t = next((x for x in (types or ITEM_TYPES) if x.lower() == t.lower()), None)
     return {"name": clean_str(content["name"], 120), "brand": clean_str(content.get("brand"), 80),
             "model_number": clean_str(content.get("model_number"), MODEL_MAX),
             "item_type": t, "description": clean_str(content.get("description"), DESCRIPTION_MAX),
@@ -922,7 +975,8 @@ def identify(ctx):
         raise ApiError(400, "provider must be ollama or anthropic")
     media, b64, n = read_request_image(b)
     provider, prov, model = request_provider(b, n)
-    result = parse_item(provider_call(lambda: prov.chat_json(PROMPT, ITEM_SCHEMA, b64, media)))
+    types = all_types(ctx.db)
+    result = parse_item(provider_call(lambda: prov.chat_json(item_prompt(types), item_schema(types), b64, media)), types)
     result.update(model=model, provider=provider)
     return 200, result
 
@@ -939,7 +993,7 @@ def receipt(ctx):
     """Read the line items of a receipt photo (see receipt_module/)."""
     media, b64, n = read_request_image(ctx.body)
     provider, prov, model = request_provider(ctx.body, n)
-    out = provider_call(lambda: rm.extract_receipt(prov, ctx.body["data"], RECEIPT_CATEGORIES))
+    out = provider_call(lambda: rm.extract_receipt(prov, ctx.body["data"], all_types(ctx.db) + ["Consumable", "Other"]))
     out.update(provider=provider, model=model)
     return 200, out
 
@@ -1004,6 +1058,8 @@ def providers_status(ctx):
 ID = r"(\d+)"
 ROUTES = [
     ("GET", r"/meta", meta),
+    ("POST", r"/categories", create_category),
+    ("DELETE", r"/categories/([^/]+)", delete_category),
     ("GET", r"/homes", list_homes),
     ("POST", r"/homes", create_home),
     ("GET", r"/homes/%s" % ID, get_home),
@@ -1091,7 +1147,7 @@ class Handler(BaseHTTPRequestHandler):
             ctx.body = self.read_body() if method in ("POST", "PUT") else {}
             ctx.db = connect()
             try:
-                status, obj = fn(ctx, *[int(g) for g in mt.groups()]) \
+                status, obj = fn(ctx, *[int(g) if g.isdigit() else g for g in mt.groups()]) \
                     if mt.groups() else fn(ctx)
             finally:
                 ctx.db.close()

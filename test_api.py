@@ -55,6 +55,28 @@ class ApiBase(unittest.TestCase):
 
 
 class ApiTest(ApiBase):
+    def test_custom_categories(self):
+        home = self.call("POST", "/api/homes", {"name": "H"}, 201)
+        room = self.call("POST", "/api/homes/%d/rooms" % home["id"], {"name": "Garage"}, 201)
+        self.call("POST", "/api/rooms/%d/items" % room["id"], {"name": "Saw", "item_type": "Tools"}, 400)
+        r = self.call("POST", "/api/categories", {"name": "  Tools "}, 201)
+        self.assertEqual(r["name"], "Tools")
+        self.assertIn("Tools", r["item_types"])
+        self.call("POST", "/api/categories", {"name": "tools"}, 409)       # duplicate, any case
+        self.call("POST", "/api/categories", {"name": "Appliance"}, 409)   # built-in
+        self.call("POST", "/api/categories", {"name": ""}, 400)
+        self.call("POST", "/api/categories", {"name": "x" * 41}, 400)
+        m = self.call("GET", "/api/meta", expect=200)
+        self.assertIn("Tools", m["item_types"])
+        self.assertNotIn("Tools", m["builtin_types"])
+        it = self.call("POST", "/api/rooms/%d/items" % room["id"], {"name": "Saw", "item_type": "tools"}, 201)
+        self.assertEqual(it["item_type"], "Tools")                         # stored with the category's spelling
+        self.call("DELETE", "/api/categories/Tools", expect=409)           # still in use
+        self.call("DELETE", "/api/categories/Appliance", expect=404)       # built-in
+        self.call("DELETE", "/api/items/%d" % it["id"], expect=200)
+        self.call("DELETE", "/api/categories/Tools", expect=200)
+        self.assertNotIn("Tools", self.call("GET", "/api/meta", expect=200)["item_types"])
+
     def test_meta_and_static(self):
         m = self.call("GET", "/api/meta", expect=200)
         self.assertIn("Appliance", m["item_types"])

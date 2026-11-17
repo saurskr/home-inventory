@@ -86,6 +86,12 @@ th{font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--mute
 .bq-item{display:flex;gap:10px;align-items:center;padding:6px 8px;border:1px solid var(--line);border-radius:var(--r-sm);background:var(--surface-2)}
 .bq-main{flex:1;min-width:0}
 .err-text{color:var(--red)}
+.cats{display:flex;flex-wrap:wrap;gap:6px}
+.cats .tag{display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border:1px solid var(--line);border-radius:999px;background:var(--surface)}
+.cats .tag.custom{border-color:var(--accent)}
+.cats .x{border:0;background:none;color:var(--muted);cursor:pointer;font-size:16px;line-height:1;padding:0 2px}
+.cats .x:hover,.cats .x:focus-visible{color:var(--red)}
+.catform{display:flex;gap:10px;align-items:flex-end;margin-top:12px}.catform .field{flex:1;margin:0}
 .thumb.sm{width:28px;height:28px;display:inline-block;vertical-align:middle;margin-right:6px}
 table.rv td,table.rv th{padding:5px 8px}
 table.rv input:not([type=checkbox]),table.rv select{padding:3px 6px;min-width:70px}
@@ -703,7 +709,18 @@ async function settingsView() {
     ${(() => { const missing = OLLAMA_MODELS.filter(n => !om.models.some(m => m.name === n || m.name === n + ":latest"));
       return missing.length ? `<p class="muted" style="margin:8px 0 0">Not installed yet: ${missing.map(n => `<code>ollama pull ${esc(n)}</code>`).join(" · ")}. Run one in a terminal, then press Refresh.</p>` : ""; })()}</div>`;
   const c = cfg.anthropic;
-  app.innerHTML = `
+  const customCats = META.item_types.filter(t => !(META.builtin_types || []).includes(t));
+  const catsHtml = `<section class="panel"><div class="panel-head"><h2>Item categories</h2><span class="sub">the Type list on items</span></div>
+      <div class="ins-body">
+        <div class="cats">${(META.builtin_types || []).map(t => `<span class="tag">${esc(t)}</span>`).join(" ")}
+          ${customCats.map(t => `<span class="tag custom">${esc(t)} <button type="button" class="x" data-del-cat="${esc(t)}" aria-label="Remove category ${esc(t)}">×</button></span>`).join(" ")}</div>
+        <form id="addCat" class="catform"><div class="field"><label for="s_cat">New category</label>
+          <input id="s_cat" maxlength="40" autocomplete="off" placeholder="e.g. Tools, Jewelry, Art"></div>
+          <button class="primary" type="submit">Add category</button></form>
+        <div class="err" id="catErr" role="alert"></div>
+        <p class="muted" style="margin:0">Built-in categories can't be removed. A custom one can be removed once no item uses it.</p>
+      </div></section>`;
+  app.innerHTML = catsHtml + `
     <section class="panel"><div class="panel-head"><h2>Local model (Ollama)</h2><span class="sub">default · free · photos stay on this computer</span></div>
       <form class="ins-body" id="setLocal">${note}
         <div class="ins-grid">
@@ -741,6 +758,12 @@ async function settingsView() {
     try { await api("PUT", "/settings", {ollama_model: b.dataset.useModel}); toast("Now using " + b.dataset.useModel); route(); }
     catch (err) { $("#locErr").textContent = err.message; }
   });
+  $("#addCat").onsubmit = async e => { e.preventDefault();
+    try { const r = await api("POST", "/categories", {name: $("#s_cat").value}); META.item_types = r.item_types; toast("Category added"); route(); }
+    catch (err) { $("#catErr").textContent = err.message; } };
+  app.querySelectorAll("[data-del-cat]").forEach(b => b.onclick = async () => {
+    try { const r = await api("DELETE", "/categories/" + encodeURIComponent(b.dataset.delCat)); META.item_types = r.item_types; toast("Category removed"); route(); }
+    catch (err) { $("#catErr").textContent = err.message; } });
   const rf = $("#omRefresh"); if (rf) rf.onclick = () => route();
   const rm = $("#rmKey");
   if (rm) rm.onclick = async () => { if (!confirm("Remove the saved API key?")) return;
@@ -1025,7 +1048,9 @@ async function itemForm(room, item) {
     <div class="item-grid">
       ${field("name", "Name", item?.name, "required")}
       ${select("room_id", "Room", rooms.map(r => [r.id, r.name]), item ? item.room_id : room.id)}
-      ${select("item_type", "Type", META.item_types.map(t => [t, t]), item?.item_type, "— choose —")}
+      ${select("item_type", "Type", [...META.item_types, ...(item?.item_type && !META.item_types.includes(item.item_type) ? [item.item_type] : [])].map(t => [t, t]).concat([["__new__", "＋ New category…"]]), item?.item_type, "— choose —")}
+      <div class="field" id="newCatBox" hidden><label for="f_newcat">New category name</label>
+        <input id="f_newcat" maxlength="40" autocomplete="off" placeholder="e.g. Tools, Jewelry, Art"></div>
       ${field("brand", "Brand", item?.brand)}
       ${field("model_number", "Model #", item?.model_number, 'maxlength="60" autocomplete="off"')}
       <div class="field"><label for="f_description">Description <span class="muted">(up to 250 characters)</span></label>
@@ -1041,6 +1066,13 @@ async function itemForm(room, item) {
         <div class="sub idmsg" id="linkMsg" role="status"></div></div>
     </div></div>`;
   const d = form(item ? `Edit ${item.inv_no}` : "Add item", html, async f => {
+    if (val(f, "item_type") === "__new__") {   // create the category first, then use it
+      const name = $("#f_newcat", f).value.trim();
+      if (!name) { $("#f_newcat", f).focus(); throw new Error("Type a name for the new category, or pick an existing one."); }
+      const existing = META.item_types.find(t => t.toLowerCase() === name.toLowerCase());
+      if (existing) f.elements.item_type.value = existing;
+      else { const r = await api("POST", "/categories", {name}); META.item_types = r.item_types; f.elements.item_type.add(new Option(r.name, r.name, true, true)); f.elements.item_type.value = r.name; }
+    }
     const b = {name: val(f, "name"), brand: val(f, "brand"), model_number: val(f, "model_number"), item_type: val(f, "item_type"),
       description: val(f, "description"), similar_url: val(f, "similar_url"),
       purchased_value: val(f, "purchased_value"), purchased_date: val(f, "purchased_date"), purchased_condition: val(f, "purchased_condition"),
@@ -1056,6 +1088,8 @@ async function itemForm(room, item) {
   }, {wide: true, tray: !!item || ADD_ITEM_IN_DRAWER, width: 720, confirmClose: () => !baseline || snap() === baseline || confirm("Discard your changes?")});
   const snap = () => [...$("form", d).elements].filter(e => e.name && e.type !== "file").map(e => e.value).join("\u0001") + "|" + !!imgs.photo + !!imgs.similar;
   const baseline = snap();  // unsaved-changes check for the tray
+  const typeSel = d.querySelector("#f_item_type"), newBox = d.querySelector("#newCatBox");
+  typeSel.addEventListener("change", () => { newBox.hidden = typeSel.value !== "__new__"; if (!newBox.hidden) d.querySelector("#f_newcat").focus(); });
   const descEl = d.querySelector("#f_description"), count = $("#descCount", d);
   const showCount = () => { count.textContent = `${descEl.value.length} / 250`; count.classList.toggle("err-text", descEl.value.length > 250); };
   descEl.addEventListener("input", showCount); showCount();
