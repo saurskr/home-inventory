@@ -38,6 +38,8 @@ Default: a local vision model through [Ollama](https://ollama.com) (`qwen2.5vl:7
 ```bash
 ollama pull qwen2.5vl:7b
 ```
+**Choosing a model:** *Settings* lists what is installed in Ollama (the same list `ollama list` prints, read from Ollama's local API) with size, parameters and whether each model can read images; press *Use* to switch. Install more with `ollama pull <name>` in a terminal, then press *Refresh list*. Only vision models work for photos (qwen2.5vl, gemma3, llama3.2-vision, minicpm-v ...). Nothing else changes: the same prompt and answer format are used for any vision model, though accuracy and speed differ.
+
 Optional: Claude with your own API key (Settings page). It is off until a key is saved, a photo is sent only when you click
 *Identify with Claude* and confirm, and the key is stored in `data/settings.json` (owner-only permissions) or read from `ANTHROPIC_API_KEY`.
 Environment overrides: `OLLAMA_HOST`, `ANTHROPIC_API_KEY`, `ANTHROPIC_BASE_URL`, `INVENTORY_ALLOWED_HOSTS`.
@@ -55,6 +57,9 @@ on writes (blocks cross-site form posts). Add more hosts with `INVENTORY_ALLOWED
 - Receipt reading lives in a standalone, reusable package: [`receipt_module/`](receipt_module/README.md).
 
 ## Item screen and editing
+Each item has: Name, Room, Type, Brand, Model #, Description (up to 250 characters), Purchased price, plus Replacement price and a link to a similar item.
+They are shown one per line in the details panel and in the edit form. The photo model fills in the Model # when it can read one off the item.
+
 The room page is split 50/50: the item list on the left, item details on the right (photos beside the facts). The list shows **10 or 25 items per
 page** (your choice is remembered) with Prev / page numbers / Next; room totals always cover every item, not just the page. After you add or save an
 item, the list jumps to the page it is on.

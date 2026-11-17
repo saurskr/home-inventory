@@ -300,6 +300,30 @@ class ApiTest(ApiBase):
         finally:
             server.DATA_DIR = old
 
+    def test_model_number_and_description_limit(self):
+        h = self.home()
+        r = self.room(h["id"])
+        base = "/api/rooms/%d/items" % r["id"]
+        it = self.call("POST", base, {"name": "Mixer", "brand": "KitchenAid", "model_number": " KSM150PSER ",
+                                      "description": "x" * 250}, 201)
+        self.assertEqual((it["model_number"], len(it["description"])), ("KSM150PSER", 250))
+        self.assertEqual(self.call("POST", base, {"name": "Plain"}, 201)["model_number"], "")
+        e = self.call("POST", base, {"name": "Too long", "description": "x" * 251}, 400)
+        self.assertIn("250 characters", e["error"])
+        self.call("POST", base, {"name": "Long model", "model_number": "m" * 61}, 400)
+        up = self.call("PUT", "/api/items/%d" % it["id"], {"model_number": "NEW-1"}, 200)
+        self.assertEqual((up["model_number"], up["brand"]), ("NEW-1", "KitchenAid"))   # other fields untouched
+        self.call("PUT", "/api/items/%d" % it["id"], {"description": "y" * 251}, 400)
+        self.call("PUT", "/api/items/%d" % it["id"], {"model_number": ""}, 200)
+        # an older description that is already longer than the limit can stay as it is, but cannot grow or change to another long one
+        import sqlite3
+        c = sqlite3.connect(os.path.join(self.tmp.name, "inventory.db"))
+        c.execute("UPDATE items SET description = ? WHERE id = ?", ("z" * 300, it["id"]))
+        c.commit(); c.close()
+        self.call("PUT", "/api/items/%d" % it["id"], {"name": "Renamed", "description": "z" * 300}, 200)
+        self.call("PUT", "/api/items/%d" % it["id"], {"description": "z" * 301}, 400)
+        self.call("PUT", "/api/items/%d" % it["id"], {"description": "short now"}, 200)
+
     def test_migrates_old_database(self):
         import sqlite3
         d = tempfile.mkdtemp()
@@ -322,6 +346,9 @@ class ApiTest(ApiBase):
             conn.close()
             self.assertEqual((row["name"], row["price_updated_at"]), ("Old thing", None))
             conn = server.connect()
+            self.assertEqual(conn.execute("SELECT model_number FROM items").fetchone()["model_number"], "")
+            conn.close()
+            conn = server.connect()
             home = dict(conn.execute("SELECT * FROM homes").fetchone())
             conn.close()
             self.assertEqual((home["address"], home["street"], home["zip"]), ("5 Pine Ct", "", ""))
@@ -334,6 +361,7 @@ class FakeProvider:
     """Stands in for Ollama or the Anthropic API: records requests, returns canned replies."""
     def __init__(self):
         self.requests, self.reply, self.status = [], {}, 200
+        self.tags, self.show = [{"name": "qwen2.5vl:7b"}], {}
         outer = self
 
         class H(http.server.BaseHTTPRequestHandler):
@@ -344,10 +372,13 @@ class FakeProvider:
                 self.send_header("Content-Length", str(len(raw))); self.end_headers(); self.wfile.write(raw)
             def do_GET(self):
                 outer.requests.append(("GET", self.path, {}, dict(self.headers)))
-                self._send(200, {"models": [{"name": "qwen2.5vl:7b"}]})
+                self._send(200, {"models": outer.tags})
             def do_POST(self):
                 n = int(self.headers.get("Content-Length") or 0)
-                outer.requests.append(("POST", self.path, json.loads(self.rfile.read(n)), dict(self.headers)))
+                body = json.loads(self.rfile.read(n))
+                outer.requests.append(("POST", self.path, body, dict(self.headers)))
+                if self.path == "/api/show":
+                    return self._send(200, outer.show.get(body.get("model"), {}))
                 self._send(outer.status, outer.reply)
 
         self.srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), H)
@@ -404,6 +435,11 @@ class IdentifyTest(FakeProvidersBase):
         r = self.call("POST", "/api/identify", {"data": PNG}, 200)
         self.assertEqual((r["name"], r["item_type"], r["provider"], r["model"]),
                          ("Stand Mixer", "Appliance", "ollama", "qwen2.5vl:7b"))
+        self.assertEqual(r["model_number"], "")                                   # not in this reply: empty, not an error
+        self.assertIn("model_number", self.ollama.requests[-1][2]["format"]["properties"])
+        self.ollama.reply = {"message": {"content": json.dumps(dict(self.ITEM, model_number=" KSM150 ", description="d" * 400))}}
+        r2 = self.call("POST", "/api/identify", {"data": PNG}, 200)
+        self.assertEqual((r2["model_number"], len(r2["description"])), ("KSM150", 250))   # trimmed, and kept within the limit
         method, path, body, _ = self.ollama.requests[-1]
         self.assertEqual(path, "/api/chat")
         self.assertEqual(body["model"], "qwen2.5vl:7b")
@@ -418,6 +454,36 @@ class IdentifyTest(FakeProvidersBase):
         self.assertEqual((r["name"], r["item_type"], r["brand"]), ("Mug", None, ""))
         self.ollama.reply = {"message": {"content": "no json here"}}
         self.call("POST", "/api/identify", {"data": PNG}, 502)
+
+    def test_installed_models(self):
+        self.ollama.tags = [
+            {"name": "llama3.2:3b", "size": 2_000_000_000, "details": {"parameter_size": "3.2B", "quantization_level": "Q4_K_M"}},
+            {"name": "qwen2.5vl:7b", "size": 6_000_000_000, "details": {"parameter_size": "7B", "family": "qwen25vl"}},
+            {"name": "old-vision:7b", "details": {"families": ["clip", "llama"]}},
+            {"name": "mystery:1b"}]
+        self.ollama.show = {"llama3.2:3b": {"capabilities": ["completion"]},
+                            "qwen2.5vl:7b": {"capabilities": ["completion", "vision"]},
+                            "old-vision:7b": {"model_info": {"clip.vision.block_count": 24}}}
+        r = self.call("GET", "/api/providers/ollama-models", expect=200)
+        self.assertTrue(r["reachable"]); self.assertEqual(r["current"], "qwen2.5vl:7b")
+        by = {m["name"]: m for m in r["models"]}
+        self.assertEqual((by["qwen2.5vl:7b"]["vision"], by["llama3.2:3b"]["vision"], by["old-vision:7b"]["vision"],
+                          by["mystery:1b"]["vision"]), (True, False, True, None))
+        self.assertEqual((by["qwen2.5vl:7b"]["size"], by["qwen2.5vl:7b"]["parameter_size"]), (6_000_000_000, "7B"))
+        self.assertEqual([m["name"] for m in r["models"]][:2], ["old-vision:7b", "qwen2.5vl:7b"])   # vision models first
+        self.ollama.tags = [{"name": "qwen2.5vl:7b"}]
+        self.call("PUT", "/api/settings", {"ollama_url": "http://127.0.0.1:9"}, 200)
+        r = self.call("GET", "/api/providers/ollama-models", expect=200)
+        self.assertEqual((r["reachable"], r["models"]), (False, []))
+
+    def test_text_only_model_gets_a_clear_message(self):
+        self.ollama.status = 400
+        self.ollama.reply = {"error": "this model does not support image input"}
+        e = self.call("POST", "/api/identify", {"data": PNG}, 502)
+        self.assertIn("can't read images", e["error"])
+        self.assertIn("qwen2.5vl:7b", e["error"])
+        self.ollama.reply = {"error": "something else"}
+        self.assertIn("HTTP 400", self.call("POST", "/api/identify", {"data": PNG}, 502)["error"])
 
     def test_ollama_errors(self):
         self.ollama.status = 404

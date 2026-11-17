@@ -182,6 +182,18 @@ class Providers(unittest.TestCase):
             OllamaProvider("http://127.0.0.1:9", "m").chat_json("p", {}, "x")
         self.assertEqual(c.exception.kind, "unreachable")
 
+    def test_ollama_text_only_model(self):
+        self.fake.status = 400
+        self.fake.reply = {"error": "model does not support images"}
+        with self.assertRaises(ProviderError) as c:
+            OllamaProvider(self.fake.url, "llama3.2:3b").chat_json("p", {}, "x")
+        self.assertEqual(c.exception.kind, "no_vision")
+        self.assertIn("llama3.2:3b can't read images", c.exception.message)
+        self.fake.reply = {"error": "bad request"}
+        with self.assertRaises(ProviderError) as c:
+            OllamaProvider(self.fake.url, "m").chat_json("p", {}, "x")
+        self.assertEqual(c.exception.kind, "http")
+
     def test_anthropic(self):
         self.fake.reply = {"content": [{"type": "tool_use", "name": "record", "input": {"kind": "item"}}]}
         p = AnthropicProvider("sk-ant-secret-key-1234567890", "claude-haiku-5-5", self.fake.url)

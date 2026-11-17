@@ -25,6 +25,8 @@ ITEM_TYPES = ["Appliance", "Furniture", "Electronics", "Memorabilia",
               "Media", "Collectible", "Clothing"]
 RECEIPT_CATEGORIES = ITEM_TYPES + ["Consumable", "Other"]  # receipt lines are sorted into these
 SOURCES = ["manual", "template", "vision"]
+DESCRIPTION_MAX = 250   # characters
+MODEL_MAX = 60
 
 US_STATES = [
     ("AL", "Alabama"), ("AK", "Alaska"), ("AZ", "Arizona"), ("AR", "Arkansas"),
@@ -102,6 +104,7 @@ CREATE TABLE IF NOT EXISTS items (
   name TEXT NOT NULL,
   description TEXT NOT NULL DEFAULT '',
   brand TEXT NOT NULL DEFAULT '',
+  model_number TEXT NOT NULL DEFAULT '',
   purchased_value REAL NOT NULL DEFAULT 0,
   replacement_value REAL NOT NULL DEFAULT 0,
   similar_url TEXT NOT NULL DEFAULT '',
@@ -159,6 +162,8 @@ def init_storage():
     cols = [r["name"] for r in conn.execute("PRAGMA table_info(items)")]
     if "price_updated_at" not in cols:  # databases created before this column existed
         conn.execute("ALTER TABLE items ADD COLUMN price_updated_at TEXT")
+    if "model_number" not in cols:  # items saved before the Model # field existed
+        conn.execute("ALTER TABLE items ADD COLUMN model_number TEXT NOT NULL DEFAULT ''")
     icols = [r["name"] for r in conn.execute("PRAGMA table_info(home_insurance)")]
     for col, ddl in (("website", "TEXT NOT NULL DEFAULT ''"), ("liability_coverage", "REAL"),
                      ("riders", "TEXT NOT NULL DEFAULT '[]'")):  # insurance tables from earlier versions
@@ -215,6 +220,21 @@ def text(body, key, required=False, default=""):
     v = v.strip()
     if required and not v:
         raise ApiError(400, "%s is required" % key)
+    return v
+
+
+def description_field(body, current=None):
+    """Description, at most DESCRIPTION_MAX characters. An older, longer description may be kept as it is."""
+    v = text(body, "description")
+    if len(v) > DESCRIPTION_MAX and v != current:
+        raise ApiError(400, "description must be %d characters or fewer (it is %d)" % (DESCRIPTION_MAX, len(v)))
+    return v
+
+
+def model_field(body):
+    v = text(body, "model_number")
+    if len(v) > MODEL_MAX:
+        raise ApiError(400, "model_number must be %d characters or fewer" % MODEL_MAX)
     return v
 
 
@@ -447,10 +467,10 @@ def insert_item(conn, room_id, b, source="manual"):
     if src not in SOURCES:
         raise ApiError(400, "source must be one of: " + ", ".join(SOURCES))
     cur = conn.execute(
-        """INSERT INTO items (room_id, name, description, brand, purchased_value,
+        """INSERT INTO items (room_id, name, description, brand, model_number, purchased_value,
            replacement_value, similar_url, item_type, source, price_updated_at)
-           VALUES (?,?,?,?,?,?,?,?,?,?)""",
-        (room_id, text(b, "name", True), text(b, "description"), text(b, "brand"),
+           VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+        (room_id, text(b, "name", True), description_field(b), text(b, "brand"), model_field(b),
          purchased, replacement, url_field(b, "similar_url"),
          check_type(b.get("item_type")), src, stamp))
     conn.execute("UPDATE items SET inv_no = ? WHERE id = ?",
@@ -483,9 +503,12 @@ def update_item(ctx, id_):
     for k in ("name",):
         if k in b:
             f[k] = text(b, k, True)
-    for k in ("description", "brand"):
-        if k in b:
-            f[k] = text(b, k)
+    if "brand" in b:
+        f["brand"] = text(b, "brand")
+    if "description" in b:
+        f["description"] = description_field(b, cur["description"])
+    if "model_number" in b:
+        f["model_number"] = model_field(b)
     if "similar_url" in b:
         f["similar_url"] = url_field(b, "similar_url")
     if "item_type" in b:
@@ -511,10 +534,10 @@ def update_item(ctx, id_):
         get_or_404(ctx.db, "rooms", b["room_id"])
         f["room_id"] = b["room_id"]
     ctx.db.execute(
-        """UPDATE items SET name=?, description=?, brand=?, purchased_value=?,
+        """UPDATE items SET name=?, description=?, brand=?, model_number=?, purchased_value=?,
            replacement_value=?, similar_url=?, item_type=?, source=?, room_id=?,
            price_updated_at=? WHERE id=?""",
-        (f["name"], f["description"], f["brand"], f["purchased_value"],
+        (f["name"], f["description"], f["brand"], f["model_number"], f["purchased_value"],
          f["replacement_value"], f["similar_url"], f["item_type"], f["source"],
          f["room_id"], f["price_updated_at"], id_))
     ctx.db.commit()
@@ -756,11 +779,12 @@ ITEM_SCHEMA = {
     "properties": {
         "name": {"type": "string"},
         "brand": {"type": "string"},
+        "model_number": {"type": "string"},
         "item_type": {"type": "string", "enum": ITEM_TYPES + ["Other"]},
         "description": {"type": "string"},
         "search_query": {"type": "string"},
     },
-    "required": ["name", "brand", "item_type", "description", "search_query"],
+    "required": ["name", "brand", "model_number", "item_type", "description", "search_query"],
 }
 
 PROMPT = (
@@ -768,9 +792,10 @@ PROMPT = (
     "identify the single main item. Answer with the requested fields only.\n"
     "- name: short common name, e.g. 'Stand Mixer'.\n"
     "- brand: the manufacturer only if a logo or text shows it or you are certain; otherwise ''.\n"
+    "- model_number: the model number only if it is printed on the item or its label; otherwise ''.\n"
     "- item_type: one of " + ", ".join(ITEM_TYPES) + ", or Other.\n"
-    "- description: one factual sentence (colour, material, visible model number). "
-    "Do not guess details you cannot see.\n"
+    "- description: one factual sentence of at most %d characters (colour, material, size). "
+    "Do not guess details you cannot see.\n" % DESCRIPTION_MAX +
     "- search_query: a web search query that would find a comparable replacement.")
 
 
@@ -793,7 +818,8 @@ def parse_item(content):
     t = clean_str(content.get("item_type"), 40)
     t = next((x for x in ITEM_TYPES if x.lower() == t.lower()), None)
     return {"name": clean_str(content["name"], 120), "brand": clean_str(content.get("brand"), 80),
-            "item_type": t, "description": clean_str(content.get("description"), 500),
+            "model_number": clean_str(content.get("model_number"), MODEL_MAX),
+            "item_type": t, "description": clean_str(content.get("description"), DESCRIPTION_MAX),
             "search_query": clean_str(content.get("search_query"), 200)}
 
 
@@ -884,6 +910,39 @@ def link_price(ctx):
         raise ApiError(e.status, e.message)
 
 
+def ollama_models(ctx):
+    """What `ollama list` shows, read from Ollama's local API (no shell command): installed models,
+    their size, and whether each can read images."""
+    c = load_settings()
+    base = c["ollama_url"].rstrip("/")
+    out = {"url": base, "reachable": False, "current": c["ollama_model"], "models": []}
+    try:
+        tags = http_json("GET", base + "/api/tags", timeout=3, local=True)
+    except ProviderError:
+        return 200, out
+    out["reachable"] = True
+    for m in (tags.get("models") or [])[:40]:
+        name = m.get("name") or m.get("model") if isinstance(m, dict) else None
+        if not name:
+            continue
+        d = m.get("details") or {}
+        entry = {"name": name, "size": m.get("size"), "parameter_size": d.get("parameter_size") or "",
+                 "quantization": d.get("quantization_level") or "", "family": d.get("family") or "", "vision": None}
+        try:
+            info = http_json("POST", base + "/api/show", {"model": name, "name": name}, timeout=3, local=True)
+            caps = info.get("capabilities")
+            if isinstance(caps, list):                       # current Ollama states it outright
+                entry["vision"] = "vision" in caps
+            elif (set(d.get("families") or []) & {"clip", "mllama"}
+                  or any(k.startswith("clip.") or ".vision." in k for k in (info.get("model_info") or {}))):
+                entry["vision"] = True                       # older Ollama: infer from the model's parts
+        except ProviderError:
+            pass
+        out["models"].append(entry)
+    out["models"].sort(key=lambda e: (e["vision"] is not True, e["name"]))
+    return 200, out
+
+
 def providers_status(ctx):
     c = load_settings()
     st = {"ollama": {"url": c["ollama_url"], "model": c["ollama_model"], "reachable": False,
@@ -928,6 +987,7 @@ ROUTES = [
     ("GET", r"/settings", get_settings),
     ("PUT", r"/settings", put_settings),
     ("GET", r"/providers/status", providers_status),
+    ("GET", r"/providers/ollama-models", ollama_models),
 ]
 ROUTES = [(m, re.compile("^" + p + "$"), fn) for m, p, fn in ROUTES]
 

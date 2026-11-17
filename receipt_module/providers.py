@@ -10,13 +10,14 @@ Claude returns a parsed object (forced tool call); callers should pass either th
 to an end user (it never contains the API key).
 """
 import json
+import re
 import socket
 import urllib.error
 import urllib.request
 
 
 class ProviderError(Exception):
-    """kind: unreachable | timeout | model_missing | auth | rate_limit | http"""
+    """kind: unreachable | timeout | model_missing | no_vision | auth | rate_limit | http"""
 
     def __init__(self, message, kind="http", status=None):
         super().__init__(message)
@@ -73,6 +74,9 @@ class OllamaProvider:
             if e.status == 404:
                 raise ProviderError("Model '%s' is not installed in Ollama. Run: ollama pull %s"
                                     % (self.model, self.model), "model_missing", 404)
+            if e.status == 400 and re.search(r"image|vision|multimodal", e.detail or "", re.I):
+                raise ProviderError("%s can't read images. Choose a vision model (for example qwen2.5vl)." % self.model,
+                                    "no_vision", 400)
             raise ProviderError("Ollama returned an error (HTTP %s)." % e.status, "http", e.status)
         return (out.get("message") or {}).get("content", "")
 

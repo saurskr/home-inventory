@@ -72,13 +72,10 @@ th{font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--mute
 /* two-column Add Item: photo on the left, fields on the right */
 .item-layout{display:grid;grid-template-columns:240px minmax(0,1fr);gap:18px;align-items:start}
 .photo-col{display:flex;flex-direction:column;gap:8px}
-.item-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px 12px}
-.item-grid .s2{grid-column:span 2}
-.item-grid .s4{grid-column:span 4}
-.item-grid textarea{min-height:56px}
+.item-grid{display:grid;grid-template-columns:minmax(0,1fr);gap:10px}   /* one field per line */
+.item-grid textarea{min-height:64px}
 .editor.wide .form-fields{max-width:none}
-@media(max-width:900px){.item-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.item-grid .s4{grid-column:span 2}}
-@media(max-width:700px){.item-layout{grid-template-columns:1fr}.item-grid{grid-template-columns:1fr}.item-grid .s2,.item-grid .s4{grid-column:auto}}
+@media(max-width:700px){.item-layout{grid-template-columns:1fr}}
 /* find similar */
 .find-box{display:flex;flex-direction:column;gap:8px;margin-top:8px;padding:10px;border:1px solid var(--line);border-radius:var(--r-sm);background:var(--surface-2)}
 .stores{display:flex;flex-wrap:wrap;gap:6px}
@@ -154,6 +151,9 @@ dl.lim dd{margin:0;text-align:right;font-variant-numeric:tabular-nums}
 .pane dl{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;margin:0;font-size:14px}
 .pane dt{color:var(--muted)}
 .pane dd{margin:0;text-align:right;font-variant-numeric:tabular-nums}
+.pane dl.fields{grid-template-columns:auto minmax(0,1fr);gap:7px 16px;font-size:15px}
+.pane dl.fields dd{text-align:left;overflow-wrap:anywhere}
+.pane dl.fields dd.desc{white-space:pre-wrap;color:var(--text)}
 .pane .desc{font-size:14px;color:var(--muted);white-space:pre-wrap}
 .pane .links a{word-break:break-all}
 .flags{display:flex;flex-direction:column;gap:4px;font-size:14px}
@@ -333,12 +333,12 @@ const closeEditors = () => {
   document.querySelectorAll(".editor").forEach(e => e.remove());
 };
 const closeTray = () => { const t = activeTray; activeTray = null; return t ? t.close() : Promise.resolve(); };
-function form(title, html, onSubmit, {submit = "Save", hint = "", wide = false, tray = false, confirmClose = null} = {}) {
+function form(title, html, onSubmit, {submit = "Save", hint = "", wide = false, tray = false, width = 820, confirmClose = null} = {}) {
   closeEditors();
   let panel;
   if (tray) {
     /* Save / Cancel stay in the tray's header; Esc, Cancel or a click outside ask first if there are changes */
-    const t = openTray({title, variant: TRAY_VARIANT, origin: $("#pane"), confirmClose,
+    const t = openTray({title, variant: TRAY_VARIANT, origin: $("#pane"), width, confirmClose,
       onClose: () => { if (activeTray === t) activeTray = null; }}, tr => {
       tr.actions.classList.add("form-actions");
       tr.actions.innerHTML = `<button class="primary" type="submit" form="trayForm">${esc(submit)}</button><button type="button" data-x>Cancel</button>`;
@@ -672,15 +672,31 @@ async function roomEditForm(r) {
 const OLLAMA_MODELS = ["qwen2.5vl:7b", "qwen2.5vl:3b", "gemma3:4b"];
 const CLAUDE_MODELS = ["claude-haiku-5-5", "claude-sonnet-5-5"];
 async function settingsView() {
-  const [cfg, st] = await Promise.all([api("GET", "/settings"), api("GET", "/providers/status")]);
+  const [cfg, st, om] = await Promise.all([api("GET", "/settings"), api("GET", "/providers/status"), api("GET", "/providers/ollama-models")]);
   await buildNav(null, null, true);
   chrome("Settings", null);
   const o = st.ollama;
   const note = !o.reachable
     ? `<div class="cov gap"><span aria-hidden="true">⚠</span><div><b>Can't reach Ollama</b> at ${esc(o.url)}. Install it from ollama.com and start it, then reload this page.</div></div>`
     : !o.model_installed
-    ? `<div class="cov gap"><span aria-hidden="true">⚠</span><div><b>Ollama is running, but ${esc(o.model)} is not installed.</b> Run <code>ollama pull ${esc(o.model)}</code> in a terminal, then reload.</div></div>`
+    ? `<div class="cov gap"><span aria-hidden="true">⚠</span><div><b>Ollama is running, but ${esc(o.model)} is not installed.</b> Pick an installed model below, or run <code>ollama pull ${esc(o.model)}</code> in a terminal and press Refresh.</div></div>`
+    : (om.models.find(m => m.name === o.model || m.name === o.model + ":latest") || {}).vision === false
+    ? `<div class="cov gap"><span aria-hidden="true">⚠</span><div><b>${esc(o.model)} can't read images.</b> Choose a vision model from the list below.</div></div>`
     : `<div class="cov ok"><span aria-hidden="true">✔</span><div><b>Ready.</b> ${esc(o.model)} is installed and Ollama is reachable.</div></div>`;
+  const fmtSize = n => n ? (n / 1e9).toFixed(1) + " GB" : "";
+  const vis = v => v === true ? '<span class="status" style="--c:var(--green)"><span class="gl" aria-hidden="true">✔</span>Yes</span>'
+    : v === false ? '<span class="status" style="--c:var(--red)"><span class="gl" aria-hidden="true">✖</span>No</span>'
+    : '<span class="status" style="--c:var(--grey)">Unknown</span>';
+  const inUse = m => m.name === o.model || m.name === o.model + ":latest";
+  const installedHtml = !om.reachable ? "" : `<div><h4 class="subhead" style="display:flex;justify-content:space-between;align-items:center;margin:0 0 6px">Installed in Ollama
+      <button type="button" class="small" id="omRefresh">Refresh list</button></h4>
+    ${om.models.length ? `<div class="table-wrap"><table class="rv"><thead><tr><th>Model</th><th>Size</th><th>Parameters</th><th>Reads images</th><th></th></tr></thead><tbody>
+      ${om.models.map(m => `<tr><td><b>${esc(m.name)}</b>${inUse(m) ? ' <span class="tag">in use</span>' : ""}</td><td>${fmtSize(m.size)}</td><td>${esc(m.parameter_size)}</td><td>${vis(m.vision)}</td>
+        <td><button type="button" class="small${inUse(m) ? "" : " primary"}" data-use-model="${esc(m.name)}" ${inUse(m) || m.vision === false ? "disabled" : ""}
+          ${m.vision === false ? 'title="This model can\'t read photos"' : ""}>${inUse(m) ? "In use" : "Use"}</button></td></tr>`).join("")}</tbody></table></div>`
+      : '<div class="empty">No models installed in Ollama yet.</div>'}
+    ${(() => { const missing = OLLAMA_MODELS.filter(n => !om.models.some(m => m.name === n || m.name === n + ":latest"));
+      return missing.length ? `<p class="muted" style="margin:8px 0 0">Not installed yet: ${missing.map(n => `<code>ollama pull ${esc(n)}</code>`).join(" · ")}. Run one in a terminal, then press Refresh.</p>` : ""; })()}</div>`;
   const c = cfg.anthropic;
   app.innerHTML = `
     <section class="panel"><div class="panel-head"><h2>Local model (Ollama)</h2><span class="sub">default · free · photos stay on this computer</span></div>
@@ -688,9 +704,10 @@ async function settingsView() {
         <div class="ins-grid">
           <div class="field" style="grid-column:span 2"><label for="s_url">Ollama address</label><input id="s_url" name="ollama_url" value="${esc(cfg.ollama.url)}"></div>
           <div class="field"><label for="s_model">Vision model</label><input id="s_model" name="ollama_model" list="om" value="${esc(cfg.ollama.model)}">
-            <datalist id="om">${OLLAMA_MODELS.map(m => `<option value="${m}">`).join("")}</datalist></div>
+            <datalist id="om">${(om.models.length ? om.models.map(m => m.name) : OLLAMA_MODELS).map(m => `<option value="${esc(m)}">`).join("")}</datalist></div>
         </div>
-        <p class="muted" style="margin:0">Use <b>qwen2.5vl:3b</b> if the 7B model is too slow on your graphics card.</p>
+        ${installedHtml}
+        <p class="muted" style="margin:0">Use <b>qwen2.5vl:3b</b> if the 7B model is too slow on your graphics card. Models that can't read images won't work for photos.</p>
         <div class="err" id="locErr" role="alert"></div>
         <div class="btns"><button class="primary" type="submit">Save</button></div>
       </form></section>
@@ -715,6 +732,11 @@ async function settingsView() {
   };
   save("#setLocal", "#locErr", ["ollama_url", "ollama_model"], "Local model settings saved");
   save("#setClaude", "#clErr", ["anthropic_key", "anthropic_model"], "Claude settings saved");
+  app.querySelectorAll("[data-use-model]").forEach(b => b.onclick = async () => {
+    try { await api("PUT", "/settings", {ollama_model: b.dataset.useModel}); toast("Now using " + b.dataset.useModel); route(); }
+    catch (err) { $("#locErr").textContent = err.message; }
+  });
+  const rf = $("#omRefresh"); if (rf) rf.onclick = () => route();
   const rm = $("#rmKey");
   if (rm) rm.onclick = async () => { if (!confirm("Remove the saved API key?")) return;
     await api("PUT", "/settings", {anthropic_key: ""}); toast("Key removed"); route(); };
@@ -833,7 +855,7 @@ function wireLink(pane, item) {
   inp.addEventListener("change", run);
 }
 
-function paneHtml(item) {
+function paneHtml(item, roomName = "") {
   if (!item) return `<div class="panel-head"><h2>Item</h2></div><div class="pane-body">
     <div class="ph-empty">No item selected</div>
     <p class="muted" style="margin:0">Select an item in the list to see its photos, equivalent-item link and price status here.</p></div>`;
@@ -844,9 +866,20 @@ function paneHtml(item) {
   const sim = item.similar_image
     ? `<a href="/images/${esc(item.similar_image)}" target="_blank" rel="noopener"><img class="ph sm" src="/images/${esc(item.similar_image)}" alt="Equivalent item for ${esc(item.name)}"></a>`
     : `<div class="ph-empty sm">No image of an equivalent item</div>`;
-  return `<div class="panel-head"><h2>Item</h2><div class="btns"><button class="primary small" data-act="edit">Edit</button></div></div>
+  const row = (label, value, cls = "") => `<dt>${label}</dt><dd class="${cls}">${value ? esc(value) : '<span class="muted">—</span>'}</dd>`;
+  return `<div class="panel-head"><h2>Item</h2><div class="btns"><span class="sub">${esc(item.inv_no)}</span><button class="primary small" data-act="edit">Edit</button></div></div>
     <div class="pane-body two">
-      <div class="ptitle"><h3>${esc(item.name)}</h3><div class="sub">${esc([item.inv_no, item.brand, item.item_type].filter(Boolean).join(" · "))}</div></div>
+      <div class="ptitle"><dl class="fields">
+        <dt>Name</dt><dd><b>${esc(item.name)}</b></dd>
+        ${row("Room", roomName)}
+        ${row("Type", item.item_type)}
+        ${row("Brand", item.brand)}
+        ${row("Model #", item.model_number)}
+        ${row("Description", item.description, "desc")}
+        ${row("Purchased price", money(item.purchased_value))}
+        ${row("Replacement price", money(item.replacement_value))}
+        ${row("Price updated", item.price_updated_at ? fmtDate(item.price_updated_at) : "Never")}
+      </dl></div>
       <div class="pcol">
         ${photo}
         <div class="btns"><button class="small" data-pick="photo">${item.image ? "Replace photo" : "Add photo"}</button></div>
@@ -855,10 +888,6 @@ function paneHtml(item) {
           <div class="btns" style="margin-top:6px"><button class="small" data-pick="similar">${item.similar_image ? "Replace image" : "Add image"}</button></div></div>
       </div>
       <div class="pcol">
-        <dl><dt>Purchased</dt><dd>${money(item.purchased_value)}</dd>
-          <dt>Replacement</dt><dd>${money(item.replacement_value)}</dd>
-          <dt>Price updated</dt><dd>${item.price_updated_at ? esc(fmtDate(item.price_updated_at)) : "Never"}</dd></dl>
-        ${item.description ? `<div class="desc">${esc(item.description)}</div>` : ""}
         <div class="flags"><div>${icon("photo", item.image ? "yes" : "no", item.image ? LABELS.photo.yes : LABELS.photo.no)}<span>${item.image ? LABELS.photo.yes : LABELS.photo.no}</span></div>
           <div>${icon("link", url ? "yes" : "no", url ? LABELS.link.yes : LABELS.link.no)}<span>${url ? LABELS.link.yes : LABELS.link.no}</span></div>
           <div>${icon("price", ps, priceLabel(item))}<span>${esc(priceLabel(item))}</span></div></div>
@@ -911,7 +940,7 @@ async function roomView(id) {
   const pane = $("#pane");
   const show = () => {
     const item = items.find(i => i.id === sel.item) || null;
-    pane.innerHTML = paneHtml(item);
+    pane.innerHTML = paneHtml(item, room.name);
     pane.querySelectorAll("[data-pick]").forEach(b => b.onclick = () => pickImage(item.id, b.dataset.pick));
     const ed = pane.querySelector('[data-act="edit"]'); if (ed) ed.onclick = () => itemForm(room, item);
     wireFind(pane, item); wireLink(pane, item);
@@ -992,28 +1021,35 @@ async function itemForm(room, item) {
         <img class="preview" data-prev="similar" ${item?.similar_image ? `src="/images/${esc(item.similar_image)}"` : "hidden"} alt=""></details>
     </div>
     <div class="item-grid">
-      <div class="s2">${field("name", "Name", item?.name, "required")}</div>
-      ${field("brand", "Brand", item?.brand)}
+      ${field("name", "Name", item?.name, "required")}
+      ${select("room_id", "Room", rooms.map(r => [r.id, r.name]), item ? item.room_id : room.id)}
       ${select("item_type", "Type", META.item_types.map(t => [t, t]), item?.item_type, "— choose —")}
-      <div class="s4">${area("description", "Description", item?.description)}</div>
-      ${field("purchased_value", "Purchased ($)", item?.purchased_value ?? "", 'type="number" min="0" step="0.01"')}
-      ${field("replacement_value", "Replacement ($)", item?.replacement_value ?? "", 'type="number" min="0" step="0.01" placeholder="= purchased"')}
-      <div class="s2">${field("similar_url", "Link to a similar item", item?.similar_url, 'type="url" placeholder="Paste a product link to read its price"')}
+      ${field("brand", "Brand", item?.brand)}
+      ${field("model_number", "Model #", item?.model_number, 'maxlength="60" autocomplete="off"')}
+      <div class="field"><label for="f_description">Description <span class="muted">(up to 250 characters)</span></label>
+        <textarea id="f_description" name="description" rows="3" maxlength="250">${esc(item?.description)}</textarea>
+        <div class="sub" id="descCount" aria-live="polite"></div></div>
+      ${field("purchased_value", "Purchased price ($)", item?.purchased_value ?? "", 'type="number" min="0" step="0.01"')}
+      ${field("replacement_value", "Replacement price ($)", item?.replacement_value ?? "", 'type="number" min="0" step="0.01" placeholder="same as purchased"')}
+      <div>${field("similar_url", "Link to a similar item", item?.similar_url, 'type="url" placeholder="Paste a product link to read its price"')}
         <div class="sub idmsg" id="linkMsg" role="status"></div></div>
-      ${item ? `<div class="s2">${select("room_id", "Room", rooms.map(r => [r.id, r.name]), item.room_id)}</div>` : ""}
     </div></div>`;
   const d = form(item ? `Edit ${item.inv_no}` : "Add item", html, async f => {
-    const b = {name: val(f, "name"), brand: val(f, "brand"), item_type: val(f, "item_type"),
+    const b = {name: val(f, "name"), brand: val(f, "brand"), model_number: val(f, "model_number"), item_type: val(f, "item_type"),
       description: val(f, "description"), similar_url: val(f, "similar_url"),
       purchased_value: val(f, "purchased_value"), replacement_value: val(f, "replacement_value")};
-    if (item) b.room_id = +val(f, "room_id"); else if (identified) b.source = "vision";
-    const saved = item ? await api("PUT", "/items/" + item.id, b) : await api("POST", `/rooms/${room.id}/items`, b);
+    const roomId = +val(f, "room_id");
+    if (item) b.room_id = roomId; else if (identified) b.source = "vision";
+    const saved = item ? await api("PUT", "/items/" + item.id, b) : await api("POST", `/rooms/${roomId}/items`, b);
     for (const k of ["photo", "similar"])
       if (imgs[k]) await api("POST", `/items/${saved.id}/image?kind=${k}`, {data: imgs[k]});
     sel.item = saved.id; toast("Item saved"); await closeTray(); route();
-  }, {wide: true, tray: !!item, confirmClose: () => !baseline || snap() === baseline || confirm("Discard your changes?")});
+  }, {wide: true, tray: !!item, width: 720, confirmClose: () => !baseline || snap() === baseline || confirm("Discard your changes?")});
   const snap = () => [...$("form", d).elements].filter(e => e.name && e.type !== "file").map(e => e.value).join("\u0001") + "|" + !!imgs.photo + !!imgs.similar;
   const baseline = snap();  // unsaved-changes check for the tray
+  const descEl = d.querySelector("#f_description"), count = $("#descCount", d);
+  const showCount = () => { count.textContent = `${descEl.value.length} / 250`; count.classList.toggle("err-text", descEl.value.length > 250); };
+  descEl.addEventListener("input", showCount); showCount();
 
   /* photo: choose or drop; the model runs automatically on a new item */
   const photoInp = d.querySelector('input[data-kind="photo"]'), drop = $("#drop", d), box = $("#photoBox", d);
@@ -1062,7 +1098,8 @@ async function itemForm(room, item) {
     try {
       const r = await api("POST", "/identify", {data: await downscale(photo), provider});
       const set = (n, v) => { if (v) d.querySelector("#f_" + n).value = v; };
-      set("name", r.name); set("brand", r.brand); set("item_type", r.item_type); set("description", r.description);
+      set("name", r.name); set("brand", r.brand); set("model_number", r.model_number); set("item_type", r.item_type); set("description", r.description);
+      showCount();
       identified = true;
       setStatus(msgEl, `Filled in by ${r.model}. Check it before saving.`, "ok");
     } catch (err) { setStatus(msgEl, err.message, "err"); }
@@ -1197,7 +1234,7 @@ async function batchForm(room) {
       } else if (kind === "item") {
         set("LLM working: identifying the item…");
         const r = await api("POST", "/identify", {data: await downscale(url, 1024), provider});
-        cands.push({entry: e.id, kind: "item", name: r.name, brand: r.brand, item_type: r.item_type || "", qty: 1, price: "",
+        cands.push({entry: e.id, kind: "item", name: r.name, brand: r.brand, model_number: r.model_number || "", item_type: r.item_type || "", qty: 1, price: "",
           description: r.description, checked: true, photo: url, thumb: e.thumb});
         set(`Item: ${r.name}`, "done");
       } else set("Skipped: not an item or a receipt", "done");
@@ -1256,7 +1293,7 @@ async function batchForm(room) {
           for (let k = 0; k < qty; k++) {
             setStatus(msg, `Saving ${made + 1}…`, "busy");
             const it = await api("POST", `/rooms/${room.id}/items`, {name: c.name.trim(), brand: (c.brand || "").trim(), item_type: c.item_type,
-              description: c.description || "", purchased_value: c.price === "" ? "" : c.price, source: "vision"});
+              description: c.description || "", model_number: c.model_number || "", purchased_value: c.price === "" ? "" : c.price, source: "vision"});
             if (c.photo && k === 0) await api("POST", `/items/${it.id}/image?kind=photo`, {data: await downscale(c.photo, 1600)});
             made++;
           }
