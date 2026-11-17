@@ -36,7 +36,20 @@ th{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--mute
 .err{color:var(--red);min-height:1.2em;margin-top:8px}
 .editor .form-fields{max-width:640px;display:flex;flex-direction:column;gap:10px}
 .form-actions{margin-top:4px}
-.editor a,.pane a{color:var(--accent)}
+.editor a,.pane a,.tray a{color:var(--accent)}
+/* floating tray for editing an item */
+.tray-scrim{position:fixed;inset:0;background:rgba(10,14,20,.32);z-index:40}
+.tray{position:fixed;z-index:50;top:64px;left:var(--tray-left,256px);width:min(820px,calc(100vw - var(--tray-left,256px) - 24px));
+  max-height:calc(100vh - 84px);display:flex;flex-direction:column;background:var(--surface);color:var(--text);
+  border:1px solid var(--accent);border-radius:var(--r);box-shadow:var(--shadow);animation:trayIn .16s ease-out}
+@keyframes trayIn{from{opacity:0;transform:translateY(-8px)}}
+@media (prefers-reduced-motion:reduce){.tray{animation:none}}
+.tray-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 14px;border-bottom:1px solid var(--line);flex:none}
+.tray-head h2{margin:0}
+.tray-body{padding:14px;overflow:auto;display:flex;flex-direction:column;gap:8px}
+.tray .form-fields.wide{max-width:none}
+.tray .err:empty{display:none}
+@media(max-width:860px){.tray{left:12px;top:60px;width:calc(100vw - 24px)}}
 .idmsg.err{color:var(--red);font-weight:600}
 /* toolbar buttons */
 .toolbar button.add{display:inline-flex;align-items:center;gap:8px;padding:9px 16px;font-size:14px;font-weight:600}
@@ -120,6 +133,7 @@ dl.lim dd{margin:0;text-align:right;font-variant-numeric:tabular-nums}
 .rider{display:grid;grid-template-columns:minmax(0,1fr) 150px auto;gap:8px;margin-bottom:8px}
 /* density toggle */
 .seg{display:inline-flex}
+.themebtn{display:inline-flex;gap:6px;align-items:center;padding:4px 10px;font-size:12px}
 .seg button{border-radius:0;padding:4px 10px;font-size:12px}
 .seg button:first-child{border-radius:var(--r-sm) 0 0 var(--r-sm)}
 .seg button:last-child{border-radius:0 var(--r-sm) var(--r-sm) 0;border-left:0}
@@ -181,7 +195,7 @@ html[data-density="compact"] td .btns button{padding:0 8px}
 .cov.gap{border-color:var(--amber)}
 .cov b{white-space:nowrap}
 @media(max-width:1000px){.split{grid-template-columns:1fr}.pane{position:static}.ins-grid{grid-template-columns:1fr 1fr}}
-@media(max-width:560px){.two,.ins-grid,.addr3{grid-template-columns:1fr}.rider{grid-template-columns:minmax(0,1fr) 100px auto}.top{padding:10px 14px}.toolbar{padding:12px 14px 0}main{padding:12px 14px 50px}}
+@media(max-width:560px){.th-txt{display:none}.two,.ins-grid,.addr3{grid-template-columns:1fr}.rider{grid-template-columns:minmax(0,1fr) 100px auto}.top{padding:10px 14px}.toolbar{padding:12px 14px 0}main{padding:12px 14px 50px}}
 </style>
 </head>
 <body>
@@ -189,14 +203,14 @@ html[data-density="compact"] td .btns button{padding:0 8px}
   <aside class="side">
     <div class="brand">Home Inventory</div>
     <nav aria-label="Homes" id="nav"></nav>
-    <div class="side-foot"><div class="who">Saved on this computer<small>No account, no cloud</small></div>
-      <button id="theme" type="button"></button></div>
+    <div class="side-foot"><div class="who">Saved on this computer<small>No account, no cloud</small></div></div>
   </aside>
   <div class="content">
     <header class="top"><h1 id="title">Homes</h1>
       <div class="top-actions">
         <div class="seg" role="group" aria-label="List density">
-          <button type="button" data-d="comfortable">Comfortable</button><button type="button" data-d="compact">Compact</button></div></div></header>
+          <button type="button" data-d="comfortable">Comfortable</button><button type="button" data-d="compact">Compact</button></div>
+        <button id="theme" class="themebtn" type="button"></button></div></header>
     <div class="toolbar" id="toolbar" hidden><button class="primary add" id="add" type="button"></button><button class="add" id="add2" type="button" hidden></button></div>
     <main id="app"></main>
   </div>
@@ -230,7 +244,9 @@ const THEMES = ["auto", "light", "dark"];
 function applyTheme(t) {
   if (t === "auto") document.documentElement.removeAttribute("data-theme");
   else document.documentElement.setAttribute("data-theme", t);
-  $("#theme").textContent = "◐ Theme: " + t[0].toUpperCase() + t.slice(1);
+  const label = "Theme: " + t[0].toUpperCase() + t.slice(1);
+  $("#theme").innerHTML = '<span aria-hidden="true">◐</span><span class="th-txt">' + label + "</span>";
+  $("#theme").setAttribute("aria-label", label + ". Click to change.");
 }
 let theme = "auto";
 try { theme = localStorage.getItem("theme") || "auto"; } catch (e) {}
@@ -294,24 +310,41 @@ const safeUrl = u => /^https?:\/\/\S+$/i.test(u || "") ? u : null;
 const hostOf = u => { try { return new URL(u).hostname.replace(/^www\./, ""); } catch (e) { return u; } };
 
 /* ---------- inline form panel: opens at the top of the page, never as a popup ---------- */
-const closeEditors = () => document.querySelectorAll(".editor").forEach(e => e.remove());
-function form(title, html, onSubmit, {submit = "Save", hint = "", wide = false} = {}) {
+const closeEditors = () => document.querySelectorAll(".editor, #tray, #trayScrim").forEach(e => { if (e._cleanup) e._cleanup(); e.remove(); });
+function form(title, html, onSubmit, {submit = "Save", hint = "", wide = false, tray = false, confirmClose = null} = {}) {
+  const opener = document.activeElement;
   closeEditors();
-  const panel = document.createElement("section");
-  panel.className = "panel editor" + (wide ? " wide" : ""); panel.id = "editor";
-  panel.innerHTML = `<div class="panel-head"><h2>${esc(title)}</h2>${hint ? `<span class="sub">${esc(hint)}</span>` : ""}</div>
-    <form class="ins-body"><div class="form-fields">${html}</div><div class="err" role="alert"></div>
-    <div class="btns form-actions"><button class="primary">${esc(submit)}</button>
-    <button type="button" data-x>Cancel</button></div></form>`;
-  app.prepend(panel);
-  $("[data-x]", panel).onclick = () => panel.remove();
-  panel.onkeydown = e => { if (e.key === "Escape") panel.remove(); };
+  const panel = document.createElement(tray ? "aside" : "section");
+  if (tray) {
+    /* floating tray: Save / Cancel stay at the top; Esc, Cancel or a click outside closes it (asking first if there are changes) */
+    panel.className = "tray"; panel.id = "tray"; panel.setAttribute("role", "dialog"); panel.setAttribute("aria-label", title);
+    panel.innerHTML = `<div class="tray-head"><h2>${esc(title)}</h2><div class="btns form-actions">
+        <button class="primary" type="submit" form="trayForm">${esc(submit)}</button><button type="button" data-x>Cancel</button></div></div>
+      <form id="trayForm" class="tray-body"><div class="err" role="alert"></div><div class="form-fields wide">${html}</div></form>`;
+    const scrim = document.createElement("div"); scrim.className = "tray-scrim"; scrim.id = "trayScrim";
+    document.body.append(scrim, panel);
+    const pane = $("#pane");
+    if (pane) panel.style.setProperty("--tray-left", Math.max(12, Math.round(pane.getBoundingClientRect().left)) + "px");
+    const close = () => { if (confirmClose && !confirmClose()) return; closeEditors(); if (opener && opener.isConnected) opener.focus(); };
+    $("[data-x]", panel).onclick = close; scrim.onclick = close;
+    const onKey = e => { if (e.key === "Escape") close(); };
+    document.addEventListener("keydown", onKey); panel._cleanup = () => document.removeEventListener("keydown", onKey);
+  } else {
+    panel.className = "panel editor" + (wide ? " wide" : ""); panel.id = "editor";
+    panel.innerHTML = `<div class="panel-head"><h2>${esc(title)}</h2>${hint ? `<span class="sub">${esc(hint)}</span>` : ""}</div>
+      <form class="ins-body"><div class="form-fields">${html}</div><div class="err" role="alert"></div>
+      <div class="btns form-actions"><button class="primary">${esc(submit)}</button>
+      <button type="button" data-x>Cancel</button></div></form>`;
+    app.prepend(panel);
+    $("[data-x]", panel).onclick = () => panel.remove();
+    panel.onkeydown = e => { if (e.key === "Escape") panel.remove(); };
+  }
   $("form", panel).onsubmit = async e => {
     e.preventDefault();
     try { await onSubmit($("form", panel)); }
     catch (err) { $(".err", panel).textContent = err.message; }
   };
-  panel.scrollIntoView({block: "nearest"});
+  if (!tray) panel.scrollIntoView({block: "nearest"});
   const first = $("input,select,textarea", panel); if (first) first.focus();
   return panel;
 }
@@ -793,9 +826,9 @@ function paneHtml(item) {
   const sim = item.similar_image
     ? `<a href="/images/${esc(item.similar_image)}" target="_blank" rel="noopener"><img class="ph sm" src="/images/${esc(item.similar_image)}" alt="Equivalent item for ${esc(item.name)}"></a>`
     : `<div class="ph-empty sm">No image of an equivalent item</div>`;
-  return `<div class="panel-head"><h2>Item</h2><span class="sub">${esc(item.inv_no)}</span></div>
+  return `<div class="panel-head"><h2>Item</h2><div class="btns"><button class="primary small" data-act="edit">Edit</button></div></div>
     <div class="pane-body">
-      <div><h3>${esc(item.name)}</h3><div class="sub">${esc(item.brand)}${item.brand && item.item_type ? " · " : ""}${esc(item.item_type || "")}</div></div>
+      <div><h3>${esc(item.name)}</h3><div class="sub">${esc([item.inv_no, item.brand, item.item_type].filter(Boolean).join(" · "))}</div></div>
       ${photo}
       <div class="btns"><button class="small" data-pick="photo">${item.image ? "Replace photo" : "Add photo"}</button></div>
       <div><h4>Equivalent item</h4>${sim}
@@ -810,8 +843,7 @@ function paneHtml(item) {
       <div class="flags"><div>${icon("photo", item.image ? "yes" : "no", item.image ? LABELS.photo.yes : LABELS.photo.no)}<span>${item.image ? LABELS.photo.yes : LABELS.photo.no}</span></div>
         <div>${icon("link", url ? "yes" : "no", url ? LABELS.link.yes : LABELS.link.no)}<span>${url ? LABELS.link.yes : LABELS.link.no}</span></div>
         <div>${icon("price", ps, priceLabel(item))}<span>${esc(priceLabel(item))}</span></div></div>
-      <div class="btns"><button class="primary small" data-act="edit">Edit</button>
-        <button class="small" data-act="confirm">Mark price current</button></div>
+      <div class="btns"><button class="small" data-act="confirm">Mark price current</button></div>
     </div>`;
 }
 
@@ -921,7 +953,9 @@ async function itemForm(room, item) {
     for (const k of ["photo", "similar"])
       if (imgs[k]) await api("POST", `/items/${saved.id}/image?kind=${k}`, {data: imgs[k]});
     sel.item = saved.id; toast("Item saved"); route();
-  }, {wide: true});
+  }, {wide: true, tray: !!item, confirmClose: () => !baseline || snap() === baseline || confirm("Discard your changes?")});
+  const snap = () => [...$("form", d).elements].filter(e => e.name && e.type !== "file").map(e => e.value).join("\u0001") + "|" + !!imgs.photo + !!imgs.similar;
+  const baseline = snap();  // unsaved-changes check for the tray
 
   /* photo: choose or drop; the model runs automatically on a new item */
   const photoInp = d.querySelector('input[data-kind="photo"]'), drop = $("#drop", d), box = $("#photoBox", d);
@@ -1010,7 +1044,7 @@ async function itemForm(room, item) {
     del.type = "button"; del.className = "danger"; del.textContent = "Delete";
     del.onclick = async () => { if (!confirm(`Delete ${item.name}?`)) return;
       await api("DELETE", "/items/" + item.id); closeEditors(); sel.item = null; toast("Item deleted"); route(); };
-    $(".form-actions", d).prepend(del);
+    $(".form-actions", d).append(del);
   }
 }
 
@@ -1179,6 +1213,7 @@ async function batchForm(room) {
 
 /* ---------- router ---------- */
 async function route() {
+  closeEditors();
   const [, kind, id] = location.hash.split("/");
   try {
     if (kind === "home") await homeView(+id);
