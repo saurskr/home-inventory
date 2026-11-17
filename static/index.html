@@ -10,6 +10,7 @@
 <link rel="stylesheet" href="ds/components/status/status.css">
 <link rel="stylesheet" href="ds/components/panel/panel.css">
 <link rel="stylesheet" href="ds/components/card/card.css">
+<link rel="stylesheet" href="ds/components/tray/tray.css">
 <style>
 /* App-specific layout only; every colour, radius and font comes from the design system tokens. */
 .crumbs{font-size:13px;color:var(--muted)}
@@ -37,19 +38,10 @@ th{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--mute
 .editor .form-fields{max-width:640px;display:flex;flex-direction:column;gap:10px}
 .form-actions{margin-top:4px}
 .editor a,.pane a,.tray a{color:var(--accent)}
-/* floating tray for editing an item */
-.tray-scrim{position:fixed;inset:0;background:rgba(10,14,20,.32);z-index:40}
-.tray{position:fixed;z-index:50;top:64px;left:var(--tray-left,256px);width:min(820px,calc(100vw - var(--tray-left,256px) - 24px));
-  max-height:calc(100vh - 84px);display:flex;flex-direction:column;background:var(--surface);color:var(--text);
-  border:1px solid var(--accent);border-radius:var(--r);box-shadow:var(--shadow);animation:trayIn .16s ease-out}
-@keyframes trayIn{from{opacity:0;transform:translateY(-8px)}}
-@media (prefers-reduced-motion:reduce){.tray{animation:none}}
-.tray-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 14px;border-bottom:1px solid var(--line);flex:none}
-.tray-head h2{margin:0}
-.tray-body{padding:14px;overflow:auto;display:flex;flex-direction:column;gap:8px}
+/* the edit tray itself comes from the design system (ds/components/tray); only form tweaks here */
+.tray form{display:flex;flex-direction:column;gap:8px}
 .tray .form-fields.wide{max-width:none}
 .tray .err:empty{display:none}
-@media(max-width:860px){.tray{left:12px;top:60px;width:calc(100vw - 24px)}}
 .idmsg.err{color:var(--red);font-weight:600}
 /* toolbar buttons */
 .toolbar button.add{display:inline-flex;align-items:center;gap:8px;padding:9px 16px;font-size:14px;font-weight:600}
@@ -216,6 +208,7 @@ html[data-density="compact"] td .btns button{padding:0 8px}
   </div>
 </div>
 <div class="toast" id="toast" role="status"></div>
+<script type="module">import { openTray } from "./ds/components/tray/tray.js"; window.openTray = openTray;</script>
 <script>
 "use strict";
 const $ = (s, r = document) => r.querySelector(s);
@@ -310,26 +303,29 @@ const safeUrl = u => /^https?:\/\/\S+$/i.test(u || "") ? u : null;
 const hostOf = u => { try { return new URL(u).hostname.replace(/^www\./, ""); } catch (e) { return u; } };
 
 /* ---------- inline form panel: opens at the top of the page, never as a popup ---------- */
-const closeEditors = () => document.querySelectorAll(".editor, #tray, #trayScrim").forEach(e => { if (e._cleanup) e._cleanup(); e.remove(); });
+const TRAY_VARIANT = "grow";  // "grow" (widens out of the item panel) | "drawer" | "instant": see ds/components/tray
+let activeTray = null;
+const closeEditors = () => {
+  if (activeTray) { activeTray.close({immediate: true}); activeTray = null; }
+  document.querySelectorAll(".editor").forEach(e => e.remove());
+};
+const closeTray = () => { const t = activeTray; activeTray = null; return t ? t.close() : Promise.resolve(); };
 function form(title, html, onSubmit, {submit = "Save", hint = "", wide = false, tray = false, confirmClose = null} = {}) {
-  const opener = document.activeElement;
   closeEditors();
-  const panel = document.createElement(tray ? "aside" : "section");
+  let panel;
   if (tray) {
-    /* floating tray: Save / Cancel stay at the top; Esc, Cancel or a click outside closes it (asking first if there are changes) */
-    panel.className = "tray"; panel.id = "tray"; panel.setAttribute("role", "dialog"); panel.setAttribute("aria-label", title);
-    panel.innerHTML = `<div class="tray-head"><h2>${esc(title)}</h2><div class="btns form-actions">
-        <button class="primary" type="submit" form="trayForm">${esc(submit)}</button><button type="button" data-x>Cancel</button></div></div>
-      <form id="trayForm" class="tray-body"><div class="err" role="alert"></div><div class="form-fields wide">${html}</div></form>`;
-    const scrim = document.createElement("div"); scrim.className = "tray-scrim"; scrim.id = "trayScrim";
-    document.body.append(scrim, panel);
-    const pane = $("#pane");
-    if (pane) panel.style.setProperty("--tray-left", Math.max(12, Math.round(pane.getBoundingClientRect().left)) + "px");
-    const close = () => { if (confirmClose && !confirmClose()) return; closeEditors(); if (opener && opener.isConnected) opener.focus(); };
-    $("[data-x]", panel).onclick = close; scrim.onclick = close;
-    const onKey = e => { if (e.key === "Escape") close(); };
-    document.addEventListener("keydown", onKey); panel._cleanup = () => document.removeEventListener("keydown", onKey);
+    /* Save / Cancel stay in the tray's header; Esc, Cancel or a click outside ask first if there are changes */
+    const t = openTray({title, variant: TRAY_VARIANT, origin: $("#pane"), confirmClose,
+      onClose: () => { if (activeTray === t) activeTray = null; }}, tr => {
+      tr.actions.classList.add("form-actions");
+      tr.actions.innerHTML = `<button class="primary" type="submit" form="trayForm">${esc(submit)}</button><button type="button" data-x>Cancel</button>`;
+      tr.body.innerHTML = `<form id="trayForm"><div class="err" role="alert"></div><div class="form-fields wide">${html}</div></form>`;
+      $("[data-x]", tr.actions).onclick = () => tr.requestClose();
+    });
+    t.el.id = "tray"; t.scrim.id = "trayScrim";
+    activeTray = t; panel = t.el;
   } else {
+    panel = document.createElement("section");
     panel.className = "panel editor" + (wide ? " wide" : ""); panel.id = "editor";
     panel.innerHTML = `<div class="panel-head"><h2>${esc(title)}</h2>${hint ? `<span class="sub">${esc(hint)}</span>` : ""}</div>
       <form class="ins-body"><div class="form-fields">${html}</div><div class="err" role="alert"></div>
@@ -344,8 +340,7 @@ function form(title, html, onSubmit, {submit = "Save", hint = "", wide = false, 
     try { await onSubmit($("form", panel)); }
     catch (err) { $(".err", panel).textContent = err.message; }
   };
-  if (!tray) panel.scrollIntoView({block: "nearest"});
-  const first = $("input,select,textarea", panel); if (first) first.focus();
+  if (!tray) { panel.scrollIntoView({block: "nearest"}); const first = $("input,select,textarea", panel); if (first) first.focus(); }
   return panel;
 }
 const field = (name, label, v = "", attrs = "", pre = "f") =>
@@ -952,7 +947,7 @@ async function itemForm(room, item) {
     const saved = item ? await api("PUT", "/items/" + item.id, b) : await api("POST", `/rooms/${room.id}/items`, b);
     for (const k of ["photo", "similar"])
       if (imgs[k]) await api("POST", `/items/${saved.id}/image?kind=${k}`, {data: imgs[k]});
-    sel.item = saved.id; toast("Item saved"); route();
+    sel.item = saved.id; toast("Item saved"); await closeTray(); route();
   }, {wide: true, tray: !!item, confirmClose: () => !baseline || snap() === baseline || confirm("Discard your changes?")});
   const snap = () => [...$("form", d).elements].filter(e => e.name && e.type !== "file").map(e => e.value).join("\u0001") + "|" + !!imgs.photo + !!imgs.similar;
   const baseline = snap();  // unsaved-changes check for the tray

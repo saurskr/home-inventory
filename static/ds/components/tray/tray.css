@@ -1,0 +1,35 @@
+/* Edit tray: a wide panel for editing one thing without leaving the page. Needs tokens/tokens.css.
+   Pair with tray.js (openTray). Three behaviours, same look:
+     .tray--instant  appears in place, no motion
+     .tray--drawer   slides in from the right edge, full height
+     .tray--grow     widens sideways out of the element it was opened from (the recommended default)
+   Save / Cancel / Delete go in .tray-actions, at the top, so they never scroll out of view. */
+
+.tray-scrim { position: fixed; inset: 0; z-index: 40; background: rgba(10, 14, 20, .32); opacity: 0; transition: opacity .26s; }
+.tray-scrim.is-open { opacity: 1; }
+
+.tray { position: fixed; z-index: 50; display: flex; flex-direction: column; max-width: calc(100vw - 24px); background: var(--surface); color: var(--text); border: 1px solid var(--accent); border-radius: var(--r); box-shadow: var(--shadow); }
+.tray-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 14px; border-bottom: 1px solid var(--line); flex: none; }
+.tray-title { margin: 0; }
+.tray-actions { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 8px; }
+.tray-body { padding: 14px; overflow: auto; flex: 1; min-height: 0; }
+
+/* drawer: slides in from the right */
+.tray--drawer { top: 0; right: 0; bottom: 0; border-width: 0 0 0 1px; border-radius: 0; max-width: 92vw; transform: translateX(105%); transition: transform .26s cubic-bezier(.2, .7, .2, 1); }
+.tray--drawer.is-open { transform: none; }
+
+/* grow: starts exactly over its origin, then widens; the contents fade in once there is room */
+.tray--grow { overflow: hidden; opacity: 0; box-shadow: none; transition: left .28s cubic-bezier(.2, .7, .2, 1), top .28s cubic-bezier(.2, .7, .2, 1), width .28s cubic-bezier(.2, .7, .2, 1), height .28s cubic-bezier(.2, .7, .2, 1), opacity .12s, box-shadow .28s; }
+.tray--grow .tray-head, .tray--grow .tray-body { opacity: 0; transition: opacity .12s; }
+.tray--grow.is-open, .tray--grow.is-closing { opacity: 1; }
+.tray--grow.is-open { box-shadow: var(--shadow); }
+.tray--grow.is-open .tray-head, .tray--grow.is-open .tray-body { opacity: 1; transition: opacity .2s .14s; }
+
+/* people who ask for less motion get none */
+@media (prefers-reduced-motion: reduce) {
+  .tray, .tray-scrim, .tray-head, .tray-body { transition: none !important; }
+}
+@media (max-width: 860px) { .tray--drawer { width: 100vw !important; max-width: 100vw; } }
+
+/* in normal flow: for documentation and previews (the reference page draws the tray this way) */
+.tray--inline { position: static; z-index: auto; max-width: none; transform: none; opacity: 1; }

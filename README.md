@@ -54,6 +54,11 @@ on writes (blocks cross-site form posts). Add more hosts with `INVENTORY_ALLOWED
   "Read as receipt / item" re-reads an image if it was classified wrongly.
 - Receipt reading lives in a standalone, reusable package: [`receipt_module/`](receipt_module/README.md).
 
+## Editing an item
+**Edit** (top of the item panel) opens a tray that widens sideways out of the panel, with Save, Cancel and Delete at the top. Esc, Cancel or a click
+outside asks first if there are unsaved changes. The tray is the shared component from the design system (`static/ds/components/tray/`).
+To try the other two styles, change `TRAY_VARIANT` in `static/index.html` to `"drawer"` (slides in from the right) or `"instant"` (no motion).
+
 ## Find similar, and prices from links
 In the item pane, **Find similar** asks a few questions (brand or any brand, model/size/color, new or used, max price) and opens the
 store search you choose (Google Shopping, Amazon, Walmart, Target, Best Buy, eBay or the web) in a new tab. Only your search words leave
