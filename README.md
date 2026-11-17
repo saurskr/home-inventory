@@ -42,6 +42,11 @@ Environment overrides: `OLLAMA_HOST`, `ANTHROPIC_API_KEY`, `ANTHROPIC_BASE_URL`,
 Security: the API only accepts `Host: localhost|127.0.0.1|[::1]` (blocks DNS rebinding) and requires `Content-Type: application/json`
 on writes (blocks cross-site form posts). Add more hosts with `INVENTORY_ALLOWED_HOSTS` and add authentication before LAN use.
 
+## Find similar
+Each item has a **Find similar** button (item pane and item form). It opens a web search for an equivalent item in a new tab
+(Google Shopping, DuckDuckGo or Amazon, remembered per browser), using the item's brand and name, or the photo model's own search words
+until you edit the name. Copy the address of a result into *Link to a similar item*. Only the search words leave your computer, and only when you click.
+
 ## Roadmap
 1. Compare candidate vision models on your own photos (small bake-off script).
 2. Phone access (PWA over LAN) with auth.

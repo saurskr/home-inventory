@@ -38,6 +38,7 @@ th{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--mute
 .form-actions{margin-top:4px}
 .editor a{color:var(--accent)}
 .idmsg.err{color:var(--red);font-weight:600}
+select.eng{width:auto;padding:3px 6px;font-size:12px}
 .toast{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);background:var(--head);color:var(--head-text);
   padding:8px 16px;border-radius:999px;opacity:0;transition:opacity .2s;pointer-events:none;z-index:60}
 .toast.show{opacity:1}
@@ -238,6 +239,22 @@ function itemIcons(i) {
     `${icon("price", ps, priceLabel(i))}</span>`;
 }
 const safeUrl = u => /^https?:\/\/\S+$/i.test(u || "") ? u : null;
+/* ---------- "Find similar": open a web search for an equivalent item in a new tab ---------- */
+const ENGINES = {
+  gshop: ["Google Shopping", q => "https://www.google.com/search?tbm=shop&q=" + encodeURIComponent(q)],
+  ddg: ["DuckDuckGo", q => "https://duckduckgo.com/?q=" + encodeURIComponent(q)],
+  amazon: ["Amazon", q => "https://www.amazon.com/s?k=" + encodeURIComponent(q)]
+};
+let engine = "gshop";
+try { engine = localStorage.getItem("engine") || "gshop"; } catch (e) {}
+if (!ENGINES[engine]) engine = "gshop";
+const engineSelect = id => `<select id="${id}" class="eng" aria-label="Search with">${Object.entries(ENGINES).map(([k, v]) =>
+  `<option value="${k}" ${k === engine ? "selected" : ""}>${v[0]}</option>`).join("")}</select>`;
+function findSimilar(query, sel) {
+  engine = sel.value;
+  try { localStorage.setItem("engine", engine); } catch (e) {}
+  window.open(ENGINES[engine][1](query), "_blank", "noopener,noreferrer");
+}
 const hostOf = u => { try { return new URL(u).hostname.replace(/^www\./, ""); } catch (e) { return u; } };
 
 /* ---------- inline form panel: opens at the top of the page, never as a popup ---------- */
@@ -641,7 +658,8 @@ function paneHtml(item) {
       <div class="btns"><button class="small" data-pick="photo">${item.image ? "Replace photo" : "Add photo"}</button></div>
       <div><h4>Equivalent item</h4>${sim}
         <div class="links" style="margin-top:6px">${url ? `<a href="${esc(url)}" target="_blank" rel="noopener noreferrer">${esc(hostOf(url))} ↗</a>` : '<span class="muted">No link yet</span>'}</div>
-        <div class="btns" style="margin-top:6px"><button class="small" data-pick="similar">${item.similar_image ? "Replace image" : "Add image"}</button></div></div>
+        <div class="btns" style="margin-top:6px"><button class="small" data-pick="similar">${item.similar_image ? "Replace image" : "Add image"}</button></div>
+        <div class="btns" style="margin-top:6px">${engineSelect("paneEngine")}<button class="small" data-act="find">Find similar ↗</button></div></div>
       <dl><dt>Purchased</dt><dd>${money(item.purchased_value)}</dd>
         <dt>Replacement</dt><dd>${money(item.replacement_value)}</dd>
         <dt>Price updated</dt><dd>${item.price_updated_at ? esc(fmtDate(item.price_updated_at)) : "Never"}</dd></dl>
@@ -697,6 +715,8 @@ async function roomView(id) {
     pane.innerHTML = paneHtml(item);
     pane.querySelectorAll("[data-pick]").forEach(b => b.onclick = () => pickImage(item.id, b.dataset.pick));
     const ed = pane.querySelector('[data-act="edit"]'); if (ed) ed.onclick = () => itemForm(room, item);
+    const fb = pane.querySelector('[data-act="find"]');
+    if (fb) fb.onclick = () => findSimilar([item.brand, item.name].filter(Boolean).join(" "), $("#paneEngine", pane));
     const cf = pane.querySelector('[data-act="confirm"]');
     if (cf) cf.onclick = async () => { await api("PUT", "/items/" + item.id, {price_confirmed: true}); toast("Price marked current"); route(); };
     app.querySelectorAll("tbody tr[data-id]").forEach(tr => {
@@ -715,7 +735,7 @@ async function roomView(id) {
 async function itemForm(room, item) {
   const [rooms, cfg] = await Promise.all([api("GET", `/homes/${room.home_id}/rooms`), api("GET", "/settings")]);
   const imgs = {photo: null, similar: null};
-  let identified = false;
+  let identified = false, modelQ = null;  // modelQ: the model's search words, used until name/brand are edited
   const img = (kind, label, cur) => `<div class="field"><label for="f_img_${kind}">${label}</label>
     <input id="f_img_${kind}" type="file" accept="image/*" data-kind="${kind}">
     <img class="preview" data-prev="${kind}" ${cur ? `src="/images/${esc(cur)}"` : "hidden"} alt=""></div>`;
@@ -726,6 +746,8 @@ async function itemForm(room, item) {
     `<div class="two">${field("purchased_value", "Purchased value ($)", item?.purchased_value ?? "", 'type="number" min="0" step="0.01"')}
       ${field("replacement_value", "Replacement value ($)", item?.replacement_value ?? "", 'type="number" min="0" step="0.01" placeholder="defaults to purchased"')}</div>` +
     field("similar_url", "Link to a similar item", item?.similar_url, 'type="url" placeholder="https://"') +
+    `<div class="field"><div class="btns">${engineSelect("formEngine")}<button type="button" class="small" id="findBtn">Find similar ↗</button></div>
+       <div class="sub">Opens a web search in a new tab. Copy the address of a result you like and paste it into the link above.</div></div>` +
     img("photo", "Photo", item?.image) +
     `<div class="field" id="idBlock"><div class="btns">
        <button type="button" class="small" id="idLocal">Identify with ${esc(cfg.ollama.model)}</button>
@@ -733,7 +755,7 @@ async function itemForm(room, item) {
          : '<span class="sub">Want Claude instead? <a href="#/settings">Add your key in Settings</a></span>'}</div>
        ${item ? "" : '<label class="toggle" style="font-size:13px"><input type="checkbox" id="idAuto"> Identify automatically when I choose a photo (local model only)</label>'}
        <div class="sub idmsg" id="idMsg" role="status">Choose a photo, then click Identify (or tick the box above to do it automatically). You review before saving.</div>
-       <a id="idSearch" class="sub" target="_blank" rel="noopener noreferrer" hidden>Search for an equivalent item ↗</a></div>` +
+       </div>` +
     img("similar", "Image of similar item", item?.similar_image) +
     (item ? select("room_id", "Room", rooms.map(r => [r.id, r.name]), item.room_id) : ""),
     async f => {
@@ -784,11 +806,16 @@ async function itemForm(room, item) {
       set("name", r.name); set("brand", r.brand); set("item_type", r.item_type); set("description", r.description);
       identified = true;
       setMsg(`Filled in by ${r.model}. Check it before saving.`, "ok");
-      const a = $("#idSearch", d);
-      if (r.search_query) { a.href = "https://duckduckgo.com/?q=" + encodeURIComponent(r.search_query); a.hidden = false; }
+      modelQ = r.search_query ? {name: r.name, brand: r.brand, q: r.search_query} : null;
     } catch (err) { setMsg(err.message, "err"); }
     finally { btns.forEach(x => x.disabled = false); }
   }
+  $("#findBtn", d).onclick = () => {
+    const name = d.querySelector("#f_name").value.trim(), brand = d.querySelector("#f_brand").value.trim();
+    const q = modelQ && modelQ.name === name && modelQ.brand === brand ? modelQ.q : [brand, name].filter(Boolean).join(" ");
+    if (!q) { toast("Enter a name or brand first"); return; }
+    findSimilar(q, $("#formEngine", d));
+  };
   $("#idLocal", d).onclick = () => runId("ollama");
   const cl = $("#idCloud", d); if (cl) cl.onclick = () => runId("anthropic");
   if (item) {
