@@ -162,6 +162,17 @@ dl.lim dd{margin:0;text-align:right;font-variant-numeric:tabular-nums}
 .pane dl.fields dd.desc{white-space:pre-wrap;color:var(--text)}
 .pane dl.fields dd.blk{text-align:left}
 .pane dl.fields dd .field{margin:0}
+.hero{display:flex;gap:14px;align-items:flex-start}
+.hero-img{width:120px;height:96px;object-fit:cover;border-radius:var(--r-sm);flex:none;display:block}
+.hero-img.ph-empty{display:grid;place-items:center;font-size:12px;padding:0}
+.hero-text{min-width:0;flex:1}.hero-name{margin:0 0 2px;font-size:22px;line-height:1.2;overflow-wrap:anywhere}
+.chips{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+.chip{display:inline-block;border:1px solid var(--line);border-radius:999px;padding:0 9px;font-size:12px;color:var(--muted)}
+.chip.ok{color:var(--green);border-color:var(--green)}.chip.warn{color:var(--amber,#b7791f);border-color:var(--amber,#b7791f)}
+.sect{border-top:1px solid var(--line);padding-top:10px}
+.vals{display:flex;gap:28px;align-items:flex-end;flex-wrap:wrap}.bigmoney{font-size:26px;font-weight:700;line-height:1.1}
+.meter{height:10px;border-radius:5px;background:var(--line);overflow:hidden;margin:8px 0 4px}.meter i{display:block;height:100%;background:var(--accent)}
+button.big{font-size:17px;padding:10px 22px;flex:1;min-width:200px}
 .pimgs{display:grid;grid-template-columns:1fr 1fr;gap:14px}
 @container (max-width:439px){.pimgs{grid-template-columns:1fr}}
 .pane .desc{font-size:14px;color:var(--muted);white-space:pre-wrap}
@@ -810,39 +821,64 @@ const STORES = {
   web: ["Web search", q => "https://duckduckgo.com/?q=" + enc(q)]
 };
 const COND_IN_ADDRESS = new Set(["gshop", "ebay"]);  // other stores get the condition as a search word instead
-const searchWords = o => [o.anyBrand ? "" : o.brand, o.name, o.words].map(x => (x || "").trim()).filter(Boolean).join(" ");
+const SEARCH_MAX = 200;   // characters; shop sites ignore very long queries
+function defaultQuery(item, withDescription = true) {
+  const has = (t, w) => t.toLowerCase().includes(w.toLowerCase());
+  const parts = [item.name]; let text = item.name || "";
+  for (const w of [item.brand, item.model_number, withDescription ? item.description : ""]) {
+    const v = (w || "").trim(); if (v && !has(text, v)) { parts.push(v); text += " " + v; }
+  }
+  const q = parts.join(" ").replace(/\s+/g, " ").trim();
+  return q.length <= SEARCH_MAX ? q : q.slice(0, SEARCH_MAX).replace(/\s+\S*$/, "");
+}
+const searchWords = o => (o.query || "").trim();
 function storeUrl(key, o) {
   let q = searchWords(o);
   if (!COND_IN_ADDRESS.has(key) && (o.cond === "new" || o.cond === "used")) q += " " + o.cond;
   return STORES[key][1](q, o);
 }
-function findBlock(item) {
-  return `<div class="find"><button type="button" class="small" data-act="find" aria-expanded="false">Find similar ↗</button>
-    <div class="find-box" id="findBox" hidden>
-      <div class="field"><label for="fs_brand">Brand</label><input id="fs_brand" value="${esc(item.brand)}" placeholder="e.g. KitchenAid"></div>
-      <label class="toggle" style="font-size:14px"><input type="checkbox" id="fs_any"> Any brand (show alternatives)</label>
-      <div class="field"><label for="fs_words">Model, size or color <span class="muted">(optional)</span></label><input id="fs_words" placeholder="e.g. 5 qt, red"></div>
+/* the "Check current price" box: search text built from name, brand, model # and description, shop buttons, saved-link price */
+function checkBlock(item) {
+  return `<div class="find-box" id="findBox" hidden>
+      <div id="cp_result" class="sub idmsg" role="status"></div>
+      <div class="field"><label for="fs_query">Search for <span class="muted">(name, brand, model # and description. You can edit it)</span></label>
+        <textarea id="fs_query" rows="3" maxlength="${SEARCH_MAX}">${esc(defaultQuery(item))}</textarea></div>
+      <label class="toggle" style="font-size:14px"><input type="checkbox" id="fs_desc" checked> Include the description</label>
       <div class="two"><div class="field"><label for="fs_cond">Condition</label><select id="fs_cond"><option value="any">Any</option><option value="new">New</option><option value="used">Used</option></select></div>
         <div class="field"><label for="fs_max">Max price ($)</label><input id="fs_max" type="number" min="0" step="1" placeholder="no limit"></div></div>
-      <div class="sub" id="fs_preview"></div>
       <div class="stores">${Object.entries(STORES).map(([k, v]) => `<button type="button" class="small" data-store="${k}">${v[0]} ↗</button>`).join("")}</div>
       <div class="sub">Price limits apply on Google Shopping, Amazon, Walmart and eBay. Use the other stores' own filters.</div>
-    </div></div>`;
+      ${linkBlock()}
+    </div>`;
 }
 function wireFind(pane, item) {
   const btn = pane.querySelector('[data-act="find"]'); if (!btn) return;
-  const box = $("#findBox", pane);
+  const box = $("#findBox", pane), q = $("#fs_query", pane);
   const opts = () => {
     const max = Math.ceil(Number($("#fs_max", pane).value) || 0);
-    return {name: item.name, brand: $("#fs_brand", pane).value, anyBrand: $("#fs_any", pane).checked,
-      words: $("#fs_words", pane).value, cond: $("#fs_cond", pane).value, max: max > 0 ? max : ""};
+    return {query: q.value, cond: $("#fs_cond", pane).value, max: max > 0 ? max : ""};
   };
-  const preview = () => { $("#fs_preview", pane).innerHTML = "Searching for: <b>" + (esc(searchWords(opts())) || "—") + "</b>"; };
+  let edited = false, checked = false;
+  q.addEventListener("input", () => { edited = true; });
+  $("#fs_desc", pane).addEventListener("change", e => { if (!edited || confirm("Replace the search text you typed?")) { q.value = defaultQuery(item, e.target.checked); edited = false; } else e.target.checked = !e.target.checked; });
+  const url = safeUrl(item.similar_url);
+  const readSaved = async () => {   // read today's price from the saved link
+    const out = $("#cp_result", pane); setStatus(out, "Reading the price from your saved link…", "busy");
+    const info = await readLink(url); out.className = "sub idmsg";
+    if (usdPrice(info)) {
+      const diff = item.replacement_value ? info.price - item.replacement_value : null;
+      out.innerHTML = `✔ <b>${money(info.price)}</b> on ${esc(info.host)}` +
+        (diff == null ? "" : diff === 0 ? " · same as your current cost" : ` · ${diff > 0 ? "up" : "down"} ${money(Math.abs(diff))} from your current cost`) +
+        `<div class="btns" style="margin-top:6px"><button type="button" class="small primary" data-newprice>Set replacement cost to ${money(info.price)}</button></div>`;
+      out.querySelector("[data-newprice]").onclick = async () => {
+        try { await api("PUT", "/items/" + item.id, {replacement_value: info.price}); toast("Replacement cost updated"); route(); }
+        catch (e) { setStatus(out, e.message, "err"); } };
+    } else out.textContent = info.error ? "⚠ " + info.error : "Your saved link has no readable price. Search below or paste another link.";
+  };
   btn.onclick = () => {
     box.hidden = !box.hidden; btn.setAttribute("aria-expanded", String(!box.hidden));
-    if (!box.hidden) { preview(); $("#fs_words", pane).focus(); }
+    if (!box.hidden) { if (url && !checked) { checked = true; readSaved(); } q.focus(); }
   };
-  box.addEventListener("input", preview); box.addEventListener("change", preview);
   box.querySelectorAll("[data-store]").forEach(b => b.onclick = () =>
     window.open(storeUrl(b.dataset.store, opts()), "_blank", "noopener,noreferrer"));
 }
@@ -889,35 +925,43 @@ function paneHtml(item, roomName = "") {
     <p class="muted" style="margin:0">Select an item in the list to see its details, photos and equivalent-item link here.</p></div>`;
   const url = safeUrl(item.similar_url), ps = priceState(item);
   const photo = item.image
-    ? `<a href="/images/${esc(item.image)}" target="_blank" rel="noopener"><img class="ph" src="/images/${esc(item.image)}" alt="Photo of ${esc(item.name)}"></a>`
-    : `<div class="ph-empty">No photo</div>`;
+    ? `<a href="/images/${esc(item.image)}" target="_blank" rel="noopener"><img class="hero-img" src="/images/${esc(item.image)}" alt="Photo of ${esc(item.name)}"></a>`
+    : `<div class="hero-img ph-empty">No photo</div>`;
   const sim = item.similar_image
     ? `<a href="/images/${esc(item.similar_image)}" target="_blank" rel="noopener"><img class="ph" src="/images/${esc(item.similar_image)}" alt="Equivalent item for ${esc(item.name)}"></a>`
     : `<div class="ph-empty">No image of an equivalent item</div>`;
   const dash = '<span class="muted">—</span>';
   const row = (label, value, cls = "") => `<dt>${label}</dt><dd class="${cls}">${value ? esc(value) : dash}</dd>`;
   const rowHtml = (label, html, cls = "") => `<dt>${label}</dt><dd class="${cls}">${html}</dd>`;
+  const rep = Number(item.replacement_value) || 0, paid = Number(item.purchased_value) || 0;
+  const diff = rep - paid, pct = paid ? Math.round(diff / paid * 100) : null;
+  const pill = (ok, yes, no) => `<span class="chip ${ok ? "ok" : ""}">${ok ? "✔ " + yes : no}</span>`;
+  const priceChip = ps === "current" ? '<span class="chip ok">✔ price current</span>'
+    : ps === "stale" ? '<span class="chip warn">price is old</span>' : '<span class="chip">no price date</span>';
+  const bar = rep && paid ? `<div class="meter" role="img" aria-label="Replacement cost compared with purchase price"><i style="width:${Math.max(6, Math.round(Math.min(rep, paid) / Math.max(rep, paid) * 100))}%"></i></div>` : "";
+  const delta = rep && paid ? `${diff === 0 ? "Same as paid" : `${diff > 0 ? "Up" : "Down"} ${money(Math.abs(diff))}${pct != null ? ` (${diff > 0 ? "+" : "−"}${Math.abs(pct)}%)` : ""} since purchase`}` : "Add both prices to compare";
   return `<div class="panel-head"><h2>Item</h2><div class="btns"><span class="sub">${esc(item.inv_no)}</span><button class="primary small" data-act="edit">Edit</button></div></div>
     <div class="pane-body">
-      <dl class="fields">
-        ${rowHtml("Name", `<b>${esc(item.name)}</b>`)}
-        ${row("Room", roomName)}
-        ${row("Type", item.item_type)}
-        ${row("Brand", item.brand)}
+      <div class="hero">${photo}
+        <div class="hero-text"><h3 class="hero-name">${esc(item.name)}</h3>
+          <div class="sub">${esc([roomName, item.item_type, item.brand].filter(Boolean).join(" · "))}</div>
+          <div class="chips">${pill(!!item.image, "photo", "no photo")}${pill(!!url, "link", "no link")}${priceChip}</div></div></div>
+      <div class="sect"><h4>Value</h4>
+        <div class="vals"><div><div class="sub">Replacement cost</div><div class="bigmoney">${rep ? money(rep) : dash}</div></div>
+          <div><div class="sub">Paid</div><b>${paid ? money(paid) : dash}</b></div></div>
+        ${bar}<div class="sub">${esc(delta)}${item.replacement_date ? " · cost dated " + esc(fmtYmd(item.replacement_date)) : " · cost never dated"}</div>
+        <div class="btns" style="margin-top:10px"><button type="button" class="primary big" data-act="find" aria-expanded="false" aria-controls="findBox">Check current price ↗</button>
+          <button type="button" class="small" data-act="confirm" title="Say the cost is up to date as of today">Mark current</button></div>
+        ${checkBlock(item)}</div>
+      <div class="sect"><h4>Details</h4><dl class="fields">
         ${row("Model #", item.model_number)}
         ${row("Description", item.description, "desc")}
-        ${row("Purchased price", money(item.purchased_value))}
-        ${row("Purchased date", fmtYmd(item.purchased_date))}
-        ${row("Purchased condition", item.purchased_condition)}
-        ${row("Replacement cost", money(item.replacement_value))}
-        ${rowHtml("Replacement cost date", `${icon("price", ps, priceLabel(item))} ${item.replacement_date ? esc(fmtYmd(item.replacement_date)) : "Never updated"}
-          <button type="button" class="small" data-act="confirm" title="Say the cost is up to date as of today">Mark current</button>`)}
-        ${rowHtml("Link to similar item", url ? `<a href="${esc(url)}" target="_blank" rel="noopener noreferrer">${esc(hostOf(url))} ↗</a>` : '<span class="muted">No link yet</span>')}
-        ${rowHtml("Find similar", findBlock(item), "blk")}
-        ${rowHtml("Paste a link", linkBlock(), "blk")}
-      </dl>
+        ${row("Purchased", [fmtYmd(item.purchased_date), item.purchased_condition].filter(x => x && x !== "—").join(" · "))}
+        ${rowHtml("Cost updated", `${icon("price", ps, priceLabel(item))} ${item.replacement_date ? esc(fmtYmd(item.replacement_date)) : "Never"}`)}
+        ${rowHtml("Similar item", url ? `<a href="${esc(url)}" target="_blank" rel="noopener noreferrer">${esc(hostOf(url))} ↗</a>` : '<span class="muted">No link yet</span>')}
+      </dl></div>
       <div class="pimgs">
-        <div>${photo}<div class="btns" style="margin-top:6px"><button class="small" data-pick="photo">${item.image ? "Replace photo" : "Add photo"}</button></div></div>
+        <div><h4>Photo</h4><div class="btns"><button class="small" data-pick="photo">${item.image ? "Replace photo" : "Add photo"}</button></div></div>
         <div><h4>Equivalent item</h4>${sim}<div class="btns" style="margin-top:6px"><button class="small" data-pick="similar">${item.similar_image ? "Replace image" : "Add image"}</button></div></div>
       </div>
     </div>`;
