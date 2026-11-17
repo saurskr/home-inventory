@@ -11,26 +11,27 @@
 <link rel="stylesheet" href="ds/components/panel/panel.css">
 <link rel="stylesheet" href="ds/components/card/card.css">
 <link rel="stylesheet" href="ds/components/tray/tray.css">
+<link rel="stylesheet" href="type-bump.css">
 <style>
 /* App-specific layout only; every colour, radius and font comes from the design system tokens. */
-.crumbs{font-size:13px;color:var(--muted)}
+.crumbs{font-size:14px;color:var(--muted)}
 .crumbs a{color:var(--accent)}
 .lead{margin:2px 0 0;color:var(--muted)}
 .grid{display:grid;gap:12px;grid-template-columns:repeat(auto-fill,minmax(260px,1fr))}
 .tile{cursor:pointer;gap:6px}
 .tile:hover{border-color:var(--accent)}
-.tile h3{margin:0;font-size:15px}
+.tile h3{margin:0;font-size:16px}
 .tile .btns{margin-top:6px}
 .btns{display:flex;gap:8px;flex-wrap:wrap}
-button.small{padding:2px 10px;font-size:12px}
+button.small{padding:2px 10px;font-size:13px}
 table{width:100%;border-collapse:collapse}
 th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:middle}
 tbody tr:last-child td{border-bottom:0}
-th{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:600;background:var(--surface-2)}
+th{font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:600;background:var(--surface-2)}
 .num{text-align:right;font-variant-numeric:tabular-nums}
 .table-wrap{overflow-x:auto}
 .thumb{width:44px;height:44px;object-fit:cover;border-radius:var(--r-sm);border:1px solid var(--line);background:var(--surface-2);display:block}
-.sub{color:var(--muted);font-size:12px}
+.sub{color:var(--muted);font-size:13px}
 .preview{max-width:100%;max-height:160px;border-radius:var(--r-sm);border:1px solid var(--line)}
 .two{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 .addr3{display:grid;grid-template-columns:minmax(0,1fr) 110px 120px;gap:10px}
@@ -44,7 +45,7 @@ th{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--mute
 .tray .err:empty{display:none}
 .idmsg.err{color:var(--red);font-weight:600}
 /* toolbar buttons */
-.toolbar button.add{display:inline-flex;align-items:center;gap:8px;padding:9px 16px;font-size:14px;font-weight:600}
+.toolbar button.add{display:inline-flex;align-items:center;gap:8px;padding:9px 16px;font-size:15px;font-weight:600}
 .add svg,.drop svg{fill:none;stroke:currentColor;stroke-linecap:round;stroke-linejoin:round}
 .add svg{width:16px;height:16px;stroke-width:1.9}
 /* spinner: "the model is working" */
@@ -54,19 +55,19 @@ th{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--mute
 @media (prefers-reduced-motion:reduce){.spin{animation-duration:2.4s}}
 .sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 /* photo drop zone and preview */
-.drop{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;text-align:center;min-height:150px;padding:14px;border:2px dashed var(--line);border-radius:var(--r);color:var(--muted);cursor:pointer;background:var(--surface-2);font-size:13px}
+.drop{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;text-align:center;min-height:150px;padding:14px;border:2px dashed var(--line);border-radius:var(--r);color:var(--muted);cursor:pointer;background:var(--surface-2);font-size:14px}
 .drop:hover,.drop.over{border-color:var(--accent);color:var(--text)}
-.drop b{color:var(--text);font-size:14px}
+.drop b{color:var(--text);font-size:15px}
 .drop svg{width:30px;height:30px;stroke-width:1.5}
 .photo-col:has(.sr-only:focus-visible) .drop,.batch-pick:has(.sr-only:focus-visible) .drop{outline:3px solid var(--accent);outline-offset:2px}
 .photo-box{position:relative}
 .preview-lg{display:block;width:100%;aspect-ratio:4/3;object-fit:cover;border-radius:var(--r-sm);border:1px solid var(--line);background:var(--surface-2)}
 .photo-busy{position:absolute;inset:0;display:none;flex-direction:column;align-items:center;justify-content:center;gap:8px;text-align:center;padding:8px;
-  background:color-mix(in srgb,var(--surface) 78%,transparent);border-radius:var(--r-sm);font-size:13px;font-weight:600}
+  background:color-mix(in srgb,var(--surface) 78%,transparent);border-radius:var(--r-sm);font-size:14px;font-weight:600}
 .photo-box.busy .photo-busy{display:flex}
-.btn-like{display:inline-block;border:1px solid var(--line);background:var(--surface);border-radius:var(--r-sm);padding:2px 10px;font-size:12px;cursor:pointer}
+.btn-like{display:inline-block;border:1px solid var(--line);background:var(--surface);border-radius:var(--r-sm);padding:2px 10px;font-size:13px;cursor:pointer}
 .btn-like:hover{background:var(--surface-2)}
-.more summary{cursor:pointer;font-size:13px;color:var(--muted)}
+.more summary{cursor:pointer;font-size:14px;color:var(--muted)}
 .more input{margin-top:6px}
 /* two-column Add Item: photo on the left, fields on the right */
 .item-layout{display:grid;grid-template-columns:240px minmax(0,1fr);gap:18px;align-items:start}
@@ -94,44 +95,45 @@ table.rv input:not([type=checkbox]),table.rv select{padding:3px 6px;min-width:70
 table.rv td.num input{width:80px;text-align:right}
 table.rv td:nth-child(2){white-space:nowrap}
 table.rv td:nth-child(2) input{width:calc(100% - 40px);min-width:160px}
-.rv-head td{background:var(--surface-2);font-size:13px}
+.rv-head td{background:var(--surface-2);font-size:14px}
 @media(max-width:700px){.batch-pick{grid-template-columns:1fr}}
 .toast{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);background:var(--head);color:var(--head-text);
   padding:8px 16px;border-radius:999px;opacity:0;transition:opacity .2s;pointer-events:none;z-index:60}
 .toast.show{opacity:1}
-.top h1{font-size:18px}
+.top h1{font-size:19px}
 /* actions row directly under the header */
 .toolbar{max-width:1280px;margin:0 auto;padding:16px 24px 0;display:flex;gap:8px;align-items:center}
 /* home display */
 .grid.homes{grid-template-columns:repeat(auto-fill,minmax(320px,1fr))}
 .hb{display:flex;flex-direction:column;gap:8px}
-.hb h3{margin:0;font-size:16px}
-.hb h4{margin:0 0 4px;font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
-.hb-addr{font-size:13px}
+.hb h3{margin:0;font-size:17px}
+.hb h4{margin:0 0 4px;font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+.hb-addr{font-size:14px}
 .hb a{color:var(--accent)}
 .hb-ins{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 .hb-limits{display:flex;flex-direction:column;gap:8px;padding-top:10px;border-top:1px solid var(--line)}
-.status{--c:var(--grey);display:inline-flex;align-items:center;gap:6px;padding:2px 10px;border-radius:999px;font-size:12px;font-weight:600;color:var(--text);
+.status{--c:var(--grey);display:inline-flex;align-items:center;gap:6px;padding:2px 10px;border-radius:999px;font-size:13px;font-weight:600;color:var(--text);
   border:1px solid color-mix(in srgb,var(--c) 55%,transparent);background:color-mix(in srgb,var(--c) 14%,transparent)}
 .status .gl{color:var(--c)}
-dl.lim{display:grid;grid-template-columns:1fr auto;gap:3px 12px;margin:0;font-size:13px}
+dl.lim{display:grid;grid-template-columns:1fr auto;gap:3px 12px;margin:0;font-size:14px}
 dl.lim dt{color:var(--muted)}
 dl.lim dd{margin:0;text-align:right;font-variant-numeric:tabular-nums}
 /* inline home editor */
 .editor{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
 .ins-sec{border:1px solid var(--line);border-radius:var(--r-sm);padding:10px 14px}
 .ins-sec>summary{cursor:pointer}
-.subhead{margin:6px 0 0;font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+.subhead{margin:6px 0 0;font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
 .rider{display:grid;grid-template-columns:minmax(0,1fr) 150px auto;gap:8px;margin-bottom:8px}
 /* density toggle */
 .seg{display:inline-flex}
-.themebtn{display:inline-flex;gap:6px;align-items:center;padding:4px 10px;font-size:12px}
-.seg button{border-radius:0;padding:4px 10px;font-size:12px}
+.themebtn{display:inline-flex;gap:6px;align-items:center;padding:4px 10px;font-size:13px}
+.seg button{border-radius:0;padding:4px 10px;font-size:13px}
 .seg button:first-child{border-radius:var(--r-sm) 0 0 var(--r-sm)}
 .seg button:last-child{border-radius:0 var(--r-sm) var(--r-sm) 0;border-left:0}
 .seg button[aria-pressed="true"]{background:var(--accent);color:var(--accent-text);border-color:var(--accent)}
 /* two-pane room layout: item pane on the left, list on the right */
 .split{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px;align-items:start}
+.split>section{order:-1}
 .pane{position:sticky;top:72px;container-type:inline-size;max-height:calc(100vh - 88px);overflow:auto}
 .pane-body.two{display:grid;grid-template-columns:minmax(0,1fr);gap:12px 16px}
 .pane-body .pcol{display:flex;flex-direction:column;gap:12px;min-width:0}
@@ -139,22 +141,22 @@ dl.lim dd{margin:0;text-align:right;font-variant-numeric:tabular-nums}
 @container (min-width:440px){.pane-body.two{grid-template-columns:minmax(0,.85fr) minmax(0,1fr)}}
 .pager{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;justify-content:space-between;padding:8px 12px;border-top:1px solid var(--line)}
 .pager .pg{display:flex;gap:4px;align-items:center;flex-wrap:wrap}
-.pager button{padding:2px 9px;font-size:12px;min-width:30px}
+.pager button{padding:2px 9px;font-size:13px;min-width:30px}
 .pager .pg button[aria-current="page"]{background:var(--accent);color:var(--accent-text);border-color:var(--accent);font-weight:600}
 .pager .gap{color:var(--muted);padding:0 2px}
 .pane-body{padding:14px;display:flex;flex-direction:column;gap:12px}
-.pane h3{margin:0;font-size:16px}
-.pane h4{margin:0 0 6px;font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+.pane h3{margin:0;font-size:17px}
+.pane h4{margin:0 0 6px;font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
 .ph{display:block;width:100%;aspect-ratio:4/3;object-fit:cover;border-radius:var(--r-sm);border:1px solid var(--line);background:var(--surface-2)}
 .ph.sm{aspect-ratio:16/9}
-.ph-empty{display:grid;place-items:center;height:84px;border:1px dashed var(--line);border-radius:var(--r-sm);color:var(--muted);font-size:13px}
+.ph-empty{display:grid;place-items:center;height:84px;border:1px dashed var(--line);border-radius:var(--r-sm);color:var(--muted);font-size:14px}
 .ph-empty.sm{height:64px}
-.pane dl{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;margin:0;font-size:13px}
+.pane dl{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;margin:0;font-size:14px}
 .pane dt{color:var(--muted)}
 .pane dd{margin:0;text-align:right;font-variant-numeric:tabular-nums}
-.pane .desc{font-size:13px;color:var(--muted);white-space:pre-wrap}
+.pane .desc{font-size:14px;color:var(--muted);white-space:pre-wrap}
 .pane .links a{word-break:break-all}
-.flags{display:flex;flex-direction:column;gap:4px;font-size:13px}
+.flags{display:flex;flex-direction:column;gap:4px;font-size:14px}
 .flags div{display:flex;gap:8px;align-items:center}
 /* status icons: photo / equivalent link / price */
 .ico{display:inline-flex;gap:5px;align-items:center}
@@ -168,8 +170,14 @@ dl.lim dd{margin:0;text-align:right;font-variant-numeric:tabular-nums}
 .ic .bk{stroke:var(--on-status);stroke-width:1.2}
 /* item and room tables */
 tr[data-id]{cursor:pointer}
-.inv{white-space:nowrap;color:var(--muted);font-size:12px}
+.inv{white-space:nowrap;color:var(--muted);font-size:13px}
 /* the item cell takes the leftover width and shortens long text with an ellipsis instead of wrapping */
+/* the item list shares the row with the details panel, so its columns are kept snug to leave room for names */
+.split th,.split td{padding:8px 7px}
+.split th{font-size:12px;letter-spacing:.03em}
+.split th:first-child,.split td:first-child{padding-left:10px}
+.split th:last-child,.split td:last-child{padding-right:10px}
+html[data-density="compact"] .split th,html[data-density="compact"] .split td{padding:3px 7px}
 .itemcell{width:100%;max-width:0}
 .itemcell b{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .itemcell .sub{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -178,10 +186,10 @@ html[data-density="compact"] .itemcell b{display:inline}
 tbody tr[data-id]:hover{background:var(--surface-2)}
 tr.sel,tr.sel:hover{background:color-mix(in srgb,var(--accent) 14%,var(--surface));box-shadow:inset 3px 0 0 var(--accent)}
 tfoot td{font-weight:700;background:var(--surface-2);border-top:1px solid var(--line);border-bottom:0}
-.legend{padding:8px 14px;font-size:12px;color:var(--muted);border-top:1px solid var(--line);display:flex;gap:16px;flex-wrap:wrap;align-items:center}
+.legend{padding:8px 14px;font-size:13px;color:var(--muted);border-top:1px solid var(--line);display:flex;gap:16px;flex-wrap:wrap;align-items:center}
 .legend span{display:inline-flex;gap:5px;align-items:center}
 /* density */
-html[data-density="compact"] th,html[data-density="compact"] td{padding:3px 10px;font-size:13px}
+html[data-density="compact"] th,html[data-density="compact"] td{padding:3px 10px;font-size:14px}
 html[data-density="compact"] .thumb{width:24px;height:24px;border-radius:4px}
 html[data-density="compact"] .ic svg{width:14px;height:14px}
 html[data-density="compact"] .sub{display:inline;margin-left:6px}
@@ -189,19 +197,19 @@ html[data-density="compact"] td .btns button{padding:0 8px}
 /* insurance */
 .ins>summary{list-style:none;cursor:pointer;display:flex;align-items:center;gap:12px;padding:10px 14px}
 .ins>summary::-webkit-details-marker{display:none}
-.ins>summary::before{content:"▸";color:var(--muted);font-size:12px;transition:transform .15s}
+.ins>summary::before{content:"▸";color:var(--muted);font-size:13px;transition:transform .15s}
 .ins[open]>summary::before{transform:rotate(90deg)}
 .ins>summary h2{margin:0}
-.ins .peek{color:var(--muted);font-size:13px;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ins .peek{color:var(--muted);font-size:14px;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .ins[open]>summary{border-bottom:1px solid var(--line)}
 .ins-body{padding:14px;display:flex;flex-direction:column;gap:14px}
 .ins-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px 12px}
 .ins-grid .full{grid-column:1/-1}
-.cov{display:flex;gap:10px;align-items:flex-start;padding:10px 12px;border:1px solid var(--line);border-radius:var(--r-sm);background:var(--surface-2);font-size:13px}
+.cov{display:flex;gap:10px;align-items:flex-start;padding:10px 12px;border:1px solid var(--line);border-radius:var(--r-sm);background:var(--surface-2);font-size:14px}
 .cov.ok{border-color:var(--green)}
 .cov.gap{border-color:var(--amber)}
 .cov b{white-space:nowrap}
-@media(max-width:1000px){.split{grid-template-columns:1fr}.pane{position:static}.ins-grid{grid-template-columns:1fr 1fr}}
+@media(max-width:1000px){.split{grid-template-columns:1fr}.split>section{order:0}.pane{position:static}.ins-grid{grid-template-columns:1fr 1fr}}
 @media(max-width:560px){.th-txt{display:none}.two,.ins-grid,.addr3{grid-template-columns:1fr}.rider{grid-template-columns:minmax(0,1fr) 100px auto}.top{padding:10px 14px}.toolbar{padding:12px 14px 0}main{padding:12px 14px 50px}}
 </style>
 </head>
@@ -762,7 +770,7 @@ function findBlock(item) {
   return `<div class="find"><button type="button" class="small" data-act="find" aria-expanded="false">Find similar ↗</button>
     <div class="find-box" id="findBox" hidden>
       <div class="field"><label for="fs_brand">Brand</label><input id="fs_brand" value="${esc(item.brand)}" placeholder="e.g. KitchenAid"></div>
-      <label class="toggle" style="font-size:13px"><input type="checkbox" id="fs_any"> Any brand (show alternatives)</label>
+      <label class="toggle" style="font-size:14px"><input type="checkbox" id="fs_any"> Any brand (show alternatives)</label>
       <div class="field"><label for="fs_words">Model, size or color <span class="muted">(optional)</span></label><input id="fs_words" placeholder="e.g. 5 qt, red"></div>
       <div class="two"><div class="field"><label for="fs_cond">Condition</label><select id="fs_cond"><option value="any">Any</option><option value="new">New</option><option value="used">Used</option></select></div>
         <div class="field"><label for="fs_max">Max price ($)</label><input id="fs_max" type="number" min="0" step="1" placeholder="no limit"></div></div>
@@ -977,7 +985,7 @@ async function itemForm(room, item) {
         ${cfg.anthropic.configured ? '<button type="button" class="small" id="idCloud">Identify with Claude…</button>'
           : '<span class="sub">Want Claude? <a href="#/settings">Add a key in Settings</a></span>'}
       </div>
-      ${item ? "" : '<label class="toggle" style="font-size:13px"><input type="checkbox" id="idAuto"> Identify automatically (local model)</label>'}
+      ${item ? "" : '<label class="toggle" style="font-size:14px"><input type="checkbox" id="idAuto"> Identify automatically (local model)</label>'}
       <div class="sub idmsg" id="idMsg" role="status">Add a photo and the model fills in the fields. You review before saving.</div>
       <details class="more"><summary>Equivalent item image (optional)</summary>
         <input id="f_img_similar" type="file" accept="image/*" data-kind="similar">
@@ -1112,7 +1120,7 @@ async function batchForm(room) {
         <div class="batch-opts">
           <div class="field"><label for="bMode">These images are</label>
             <select id="bMode"><option value="auto">Mixed: detect each one</option><option value="item">All item photos</option><option value="receipt">All receipts</option></select></div>
-          ${cfg.anthropic.configured ? '<label class="toggle" style="font-size:13px"><input type="checkbox" id="bCloud"> Use Claude instead of the local model (sends the images to Anthropic)</label>' : ""}
+          ${cfg.anthropic.configured ? '<label class="toggle" style="font-size:14px"><input type="checkbox" id="bCloud"> Use Claude instead of the local model (sends the images to Anthropic)</label>' : ""}
           <div class="btns"><button class="primary" type="button" id="bStart" disabled>Read images</button>
             <button type="button" id="bStop" hidden>Stop</button><button type="button" id="bClose">Close</button></div>
           <div class="sub idmsg" id="bNote" role="status">Receipts are best photographed flat, well lit and filling the frame.</div>

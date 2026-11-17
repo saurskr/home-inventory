@@ -602,5 +602,40 @@ class LinkPriceTest(ApiBase):
             self.assertIn("private or local", e["error"], u)
 
 
+class TypeBumpTest(unittest.TestCase):
+    """tools/type_bump.py: font sizes in the vendored design system are raised without editing it."""
+    @classmethod
+    def setUpClass(cls):
+        import sys
+        cls.root = os.path.dirname(os.path.abspath(__file__))
+        sys.path.insert(0, os.path.join(cls.root, "tools"))
+        import type_bump
+        cls.tb = type_bump
+
+    def test_rules(self):
+        css = """body { font: 14px/1.45 var(--font); }
+h1 { font-size: 18px; }
+.a, .b > c { font-size:12px !important; color: red }
+@media (max-width: 860px) { .x { font-size: 13px } .y { color: blue } }
+@keyframes k { from { font-size: 10px } }
+.u { font-size: 1.2em } .v { font: inherit } .w { font: italic 600 13px/18px Arial }
+/* gone { font-size: 99px } */
+.q { content: "}"; font-size: 11px }"""
+        out = self.tb.bump_css(css, 1)
+        for want in ("body { font: 15px/1.45 var(--font); }", "h1 { font-size: 19px; }",
+                     ".a, .b > c { font-size: 13px !important; }", "@media (max-width: 860px) {\n  .x { font-size: 14px; }\n}",
+                     ".w { font: italic 600 14px/18px Arial; }", ".q { font-size: 12px; }"):
+            self.assertIn(want, out)
+        for nope in (".y", "keyframes", ".u", ".v", "99", "font-size: 10"):
+            self.assertNotIn(nope, out)
+        self.assertIn("h1 { font-size: 20px; }", self.tb.bump_css(css, 2))
+        self.assertIn("h1 { font-size: 17.5px; }", self.tb.bump_css(css, -0.5))
+
+    def test_committed_file_is_current(self):
+        """If static/ds/ is re-copied, regenerate static/type-bump.css with: python3 tools/type_bump.py"""
+        with open(os.path.join(self.root, "static", "type-bump.css"), encoding="utf-8") as fh:
+            self.assertEqual(fh.read(), self.tb.build(os.path.join(self.root, "static", "ds"), 1.0))
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=1)
