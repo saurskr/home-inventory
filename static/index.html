@@ -131,8 +131,17 @@ dl.lim dd{margin:0;text-align:right;font-variant-numeric:tabular-nums}
 .seg button:last-child{border-radius:0 var(--r-sm) var(--r-sm) 0;border-left:0}
 .seg button[aria-pressed="true"]{background:var(--accent);color:var(--accent-text);border-color:var(--accent)}
 /* two-pane room layout: item pane on the left, list on the right */
-.split{display:grid;grid-template-columns:300px minmax(0,1fr);gap:16px;align-items:start}
-.pane{position:sticky;top:72px}
+.split{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px;align-items:start}
+.pane{position:sticky;top:72px;container-type:inline-size;max-height:calc(100vh - 88px);overflow:auto}
+.pane-body.two{display:grid;grid-template-columns:minmax(0,1fr);gap:12px 16px}
+.pane-body .pcol{display:flex;flex-direction:column;gap:12px;min-width:0}
+.pane-body .ptitle{grid-column:1/-1}
+@container (min-width:440px){.pane-body.two{grid-template-columns:minmax(0,.85fr) minmax(0,1fr)}}
+.pager{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;justify-content:space-between;padding:8px 12px;border-top:1px solid var(--line)}
+.pager .pg{display:flex;gap:4px;align-items:center;flex-wrap:wrap}
+.pager button{padding:2px 9px;font-size:12px;min-width:30px}
+.pager .pg button[aria-current="page"]{background:var(--accent);color:var(--accent-text);border-color:var(--accent);font-weight:600}
+.pager .gap{color:var(--muted);padding:0 2px}
 .pane-body{padding:14px;display:flex;flex-direction:column;gap:12px}
 .pane h3{margin:0;font-size:16px}
 .pane h4{margin:0 0 6px;font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
@@ -160,6 +169,12 @@ dl.lim dd{margin:0;text-align:right;font-variant-numeric:tabular-nums}
 /* item and room tables */
 tr[data-id]{cursor:pointer}
 .inv{white-space:nowrap;color:var(--muted);font-size:12px}
+/* the item cell takes the leftover width and shortens long text with an ellipsis instead of wrapping */
+.itemcell{width:100%;max-width:0}
+.itemcell b{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.itemcell .sub{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+html[data-density="compact"] .itemcell{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+html[data-density="compact"] .itemcell b{display:inline}
 tbody tr[data-id]:hover{background:var(--surface-2)}
 tr.sel,tr.sel:hover{background:color-mix(in srgb,var(--accent) 14%,var(--surface));box-shadow:inset 3px 0 0 var(--accent)}
 tfoot td{font-weight:700;background:var(--surface-2);border-top:1px solid var(--line);border-bottom:0}
@@ -257,10 +272,10 @@ try { density = localStorage.getItem("density") || "comfortable"; } catch (e) {}
 function applyDensity(d) {
   density = d === "compact" ? "compact" : "comfortable";
   document.documentElement.setAttribute("data-density", density);
-  document.querySelectorAll(".seg button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.d === density)));
+  document.querySelectorAll("header .seg button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.d === density)));
 }
 applyDensity(density);
-document.querySelectorAll(".seg button").forEach(b => b.onclick = () => {
+document.querySelectorAll("header .seg button").forEach(b => b.onclick = () => {
   try { localStorage.setItem("density", b.dataset.d); } catch (e) {}
   applyDensity(b.dataset.d);
 });
@@ -303,7 +318,7 @@ const safeUrl = u => /^https?:\/\/\S+$/i.test(u || "") ? u : null;
 const hostOf = u => { try { return new URL(u).hostname.replace(/^www\./, ""); } catch (e) { return u; } };
 
 /* ---------- inline form panel: opens at the top of the page, never as a popup ---------- */
-const TRAY_VARIANT = "grow";  // "grow" (widens out of the item panel) | "drawer" | "instant": see ds/components/tray
+const TRAY_VARIANT = "drawer";  // "drawer" (slides in from the right) | "grow" (widens out of the item panel) | "instant": see ds/components/tray
 let activeTray = null;
 const closeEditors = () => {
   if (activeTray) { activeTray.close({immediate: true}); activeTray = null; }
@@ -822,23 +837,27 @@ function paneHtml(item) {
     ? `<a href="/images/${esc(item.similar_image)}" target="_blank" rel="noopener"><img class="ph sm" src="/images/${esc(item.similar_image)}" alt="Equivalent item for ${esc(item.name)}"></a>`
     : `<div class="ph-empty sm">No image of an equivalent item</div>`;
   return `<div class="panel-head"><h2>Item</h2><div class="btns"><button class="primary small" data-act="edit">Edit</button></div></div>
-    <div class="pane-body">
-      <div><h3>${esc(item.name)}</h3><div class="sub">${esc([item.inv_no, item.brand, item.item_type].filter(Boolean).join(" · "))}</div></div>
-      ${photo}
-      <div class="btns"><button class="small" data-pick="photo">${item.image ? "Replace photo" : "Add photo"}</button></div>
-      <div><h4>Equivalent item</h4>${sim}
-        <div class="links" style="margin-top:6px">${url ? `<a href="${esc(url)}" target="_blank" rel="noopener noreferrer">${esc(hostOf(url))} ↗</a>` : '<span class="muted">No link yet</span>'}</div>
-        <div class="btns" style="margin-top:6px"><button class="small" data-pick="similar">${item.similar_image ? "Replace image" : "Add image"}</button></div>
-        <div style="margin-top:8px">${findBlock(item)}</div>
-        <div style="margin-top:8px">${linkBlock()}</div></div>
-      <dl><dt>Purchased</dt><dd>${money(item.purchased_value)}</dd>
-        <dt>Replacement</dt><dd>${money(item.replacement_value)}</dd>
-        <dt>Price updated</dt><dd>${item.price_updated_at ? esc(fmtDate(item.price_updated_at)) : "Never"}</dd></dl>
-      ${item.description ? `<div class="desc">${esc(item.description)}</div>` : ""}
-      <div class="flags"><div>${icon("photo", item.image ? "yes" : "no", item.image ? LABELS.photo.yes : LABELS.photo.no)}<span>${item.image ? LABELS.photo.yes : LABELS.photo.no}</span></div>
-        <div>${icon("link", url ? "yes" : "no", url ? LABELS.link.yes : LABELS.link.no)}<span>${url ? LABELS.link.yes : LABELS.link.no}</span></div>
-        <div>${icon("price", ps, priceLabel(item))}<span>${esc(priceLabel(item))}</span></div></div>
-      <div class="btns"><button class="small" data-act="confirm">Mark price current</button></div>
+    <div class="pane-body two">
+      <div class="ptitle"><h3>${esc(item.name)}</h3><div class="sub">${esc([item.inv_no, item.brand, item.item_type].filter(Boolean).join(" · "))}</div></div>
+      <div class="pcol">
+        ${photo}
+        <div class="btns"><button class="small" data-pick="photo">${item.image ? "Replace photo" : "Add photo"}</button></div>
+        <div><h4>Equivalent item</h4>${sim}
+          <div class="links" style="margin-top:6px">${url ? `<a href="${esc(url)}" target="_blank" rel="noopener noreferrer">${esc(hostOf(url))} ↗</a>` : '<span class="muted">No link yet</span>'}</div>
+          <div class="btns" style="margin-top:6px"><button class="small" data-pick="similar">${item.similar_image ? "Replace image" : "Add image"}</button></div></div>
+      </div>
+      <div class="pcol">
+        <dl><dt>Purchased</dt><dd>${money(item.purchased_value)}</dd>
+          <dt>Replacement</dt><dd>${money(item.replacement_value)}</dd>
+          <dt>Price updated</dt><dd>${item.price_updated_at ? esc(fmtDate(item.price_updated_at)) : "Never"}</dd></dl>
+        ${item.description ? `<div class="desc">${esc(item.description)}</div>` : ""}
+        <div class="flags"><div>${icon("photo", item.image ? "yes" : "no", item.image ? LABELS.photo.yes : LABELS.photo.no)}<span>${item.image ? LABELS.photo.yes : LABELS.photo.no}</span></div>
+          <div>${icon("link", url ? "yes" : "no", url ? LABELS.link.yes : LABELS.link.no)}<span>${url ? LABELS.link.yes : LABELS.link.no}</span></div>
+          <div>${icon("price", ps, priceLabel(item))}<span>${esc(priceLabel(item))}</span></div></div>
+        <div class="btns"><button class="small" data-act="confirm">Mark price current</button></div>
+        <div>${findBlock(item)}</div>
+        <div>${linkBlock()}</div>
+      </div>
     </div>`;
 }
 
@@ -853,32 +872,34 @@ function pickImage(itemId, kind) {
   inp.click();
 }
 
+const PAGE_SIZES = [10, 25];
+let pageSize = 10;
+try { const v = +localStorage.getItem("pageSize"); if (PAGE_SIZES.includes(v)) pageSize = v; } catch (e) {}
+const listState = {room: null, page: 1};
+function pageNumbers(cur, total) {  // 1 … 4 5 6 … 12
+  const keep = [...new Set([1, total, cur - 1, cur, cur + 1])].filter(n => n >= 1 && n <= total).sort((a, b) => a - b);
+  const out = [];
+  keep.forEach((n, i) => { if (i && n - keep[i - 1] > 1) out.push("…"); out.push(n); });
+  return out;
+}
+
 async function roomView(id) {
   const room = await api("GET", "/rooms/" + id);
   const [home, items] = await Promise.all([api("GET", "/homes/" + room.home_id), api("GET", `/rooms/${id}/items`)]);
   await buildNav(home.id, room.id);
   chrome(room.name, "Add item", () => itemForm(room), {label: "Add items by image", icon: "camera", onClick: () => batchForm(room)});
   if (sel.room !== id) { sel.room = id; sel.item = null; }
+  if (listState.room !== id) { listState.room = id; listState.page = 1; }
   if (!items.some(i => i.id === sel.item)) sel.item = null;
+  const lastPage = () => Math.max(1, Math.ceil(items.length / pageSize));
+  const at = items.findIndex(i => i.id === sel.item);
+  if (at >= 0) listState.page = Math.floor(at / pageSize) + 1;       // after a save or add, show the page the item is on
+  listState.page = Math.min(Math.max(1, listState.page), lastPage());
   app.innerHTML = `<div class="crumbs"><a href="#/">Homes</a> / <a href="#/home/${home.id}">${esc(home.name)}</a> / ${esc(room.name)}${room.description ? " · " + esc(room.description) : ""}</div>
     ${stats([["Items", items.length], ["Purchased", money(room.total_purchased)], ["Room total (replacement)", money(room.total_replacement)],
       ["Home total", money(home.total_replacement)]])}
     <div class="split"><aside class="panel pane" id="pane" aria-label="Selected item"></aside>
-    <section class="panel"><div class="panel-head"><h2>Items</h2></div>
-    ${items.length ? `<div class="table-wrap"><table><thead><tr><th aria-label="Photo"></th><th>Item</th><th>Inv #</th>
-      <th>Status</th><th class="num">Purchased</th><th class="num">Replacement</th></tr></thead><tbody>
-      ${items.map(i => `<tr data-id="${i.id}" tabindex="0" aria-selected="${i.id === sel.item}" class="${i.id === sel.item ? "sel" : ""}">
-        <td>${i.image ? `<img class="thumb" src="/images/${esc(i.image)}" alt="">` : `<div class="thumb"></div>`}</td>
-        <td><b>${esc(i.name)}</b>${i.brand || i.item_type ? `<div class="sub">${esc([i.brand, i.item_type].filter(Boolean).join(" · "))}</div>` : ""}</td>
-        <td class="inv">${esc(i.inv_no)}</td>
-        <td>${itemIcons(i)}</td>
-        <td class="num">${money(i.purchased_value)}</td><td class="num">${money(i.replacement_value)}</td></tr>`).join("")}
-      </tbody><tfoot><tr><td colspan="4">Room total (${items.length} item${items.length === 1 ? "" : "s"})</td>
-        <td class="num">${money(room.total_purchased)}</td><td class="num">${money(room.total_replacement)}</td></tr></tfoot></table></div>
-      <div class="legend"><span>${icon("photo", "yes", "Photo")} photo</span><span>${icon("link", "yes", "Link")} equivalent-item link</span>
-        <span>${icon("price", "current", "Price")} price updated within a year</span><span>${icon("price", "stale", "Price")} older than a year</span>
-        <span>${icon("price", "none", "Price")} never updated · dashed = missing</span></div>`
-      : `<div class="empty">No items in this room yet.</div>`}</section></div>`;
+    <section class="panel"><div class="panel-head"><h2>Items</h2></div><div id="listWrap"></div></section></div>`;
   const pane = $("#pane");
   const show = () => {
     const item = items.find(i => i.id === sel.item) || null;
@@ -893,11 +914,45 @@ async function roomView(id) {
       tr.classList.toggle("sel", on); tr.setAttribute("aria-selected", String(on));
     });
   };
-  app.querySelectorAll("tbody tr[data-id]").forEach(tr => {
-    const pick = () => { sel.item = +tr.dataset.id; show(); };
-    tr.onclick = pick;
-    tr.onkeydown = e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); pick(); } };
-  });
+  const pagerHtml = (start, shown, pages) => `<div class="pager" role="navigation" aria-label="Item pages">
+    <span class="sub">Showing ${start + 1}–${start + shown} of ${items.length}</span>
+    <div class="seg" role="group" aria-label="Items per page">${PAGE_SIZES.map(n => `<button type="button" data-size="${n}" aria-pressed="${n === pageSize}">${n} per page</button>`).join("")}</div>
+    <div class="pg"><button type="button" data-page="${listState.page - 1}" ${listState.page <= 1 ? "disabled" : ""}>‹ Prev</button>
+      ${pageNumbers(listState.page, pages).map(n => n === "…" ? '<span class="gap" aria-hidden="true">…</span>'
+        : `<button type="button" data-page="${n}" aria-label="Page ${n}" ${n === listState.page ? 'aria-current="page"' : ""}>${n}</button>`).join("")}
+      <button type="button" data-page="${listState.page + 1}" ${listState.page >= pages ? "disabled" : ""}>Next ›</button></div></div>`;
+  const drawList = (refocus = false) => {
+    const wrap = $("#listWrap");
+    if (!items.length) { wrap.innerHTML = `<div class="empty">No items in this room yet.</div>`; return; }
+    const pages = lastPage(), start = (listState.page - 1) * pageSize, rows = items.slice(start, start + pageSize);
+    wrap.innerHTML = `<div class="table-wrap"><table><thead><tr><th aria-label="Photo"></th><th>Item</th><th>Status</th>
+      <th class="num">Purchased</th><th class="num">Replacement</th></tr></thead><tbody>
+      ${rows.map(i => `<tr data-id="${i.id}" tabindex="0" aria-selected="${i.id === sel.item}" class="${i.id === sel.item ? "sel" : ""}">
+        <td>${i.image ? `<img class="thumb" src="/images/${esc(i.image)}" alt="">` : `<div class="thumb"></div>`}</td>
+        <td class="itemcell"><b>${esc(i.name)}</b><div class="sub" title="${esc([i.brand, i.item_type, i.inv_no].filter(Boolean).join(" · "))}">${esc([i.brand, i.item_type, i.inv_no].filter(Boolean).join(" · "))}</div></td>
+        <td>${itemIcons(i)}</td>
+        <td class="num">${money(i.purchased_value)}</td><td class="num">${money(i.replacement_value)}</td></tr>`).join("")}
+      </tbody><tfoot><tr><td colspan="3">Room total (${items.length} item${items.length === 1 ? "" : "s"})</td>
+        <td class="num">${money(room.total_purchased)}</td><td class="num">${money(room.total_replacement)}</td></tr></tfoot></table></div>
+      ${items.length > PAGE_SIZES[0] ? pagerHtml(start, rows.length, pages) : ""}
+      <div class="legend"><span>${icon("photo", "yes", "Photo")} photo</span><span>${icon("link", "yes", "Link")} equivalent-item link</span>
+        <span>${icon("price", "current", "Price")} price updated within a year</span><span>${icon("price", "stale", "Price")} older than a year</span>
+        <span>${icon("price", "none", "Price")} never updated · dashed = missing</span></div>`;
+    wrap.querySelectorAll("tbody tr[data-id]").forEach(tr => {
+      const pick = () => { sel.item = +tr.dataset.id; show(); };
+      tr.onclick = pick;
+      tr.onkeydown = e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); pick(); } };
+    });
+    wrap.querySelectorAll("[data-page]").forEach(b => b.onclick = () => { listState.page = +b.dataset.page; drawList(true); });
+    wrap.querySelectorAll("[data-size]").forEach(b => b.onclick = () => {
+      const first = (listState.page - 1) * pageSize;            // keep the first visible item in view
+      pageSize = +b.dataset.size;
+      try { localStorage.setItem("pageSize", String(pageSize)); } catch (e) {}
+      listState.page = Math.floor(first / pageSize) + 1; drawList(true);
+    });
+    if (refocus) { const cur = wrap.querySelector('[aria-current="page"]') || wrap.querySelector("[data-size][aria-pressed=true]"); if (cur) cur.focus(); }
+  };
+  drawList();
   show();
 }
 
