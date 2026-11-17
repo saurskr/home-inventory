@@ -12,7 +12,9 @@ import urllib.error
 import urllib.request
 import uuid
 
+import gdrive
 import linkinfo
+import report as report_mod
 import receipt_module as rm
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, unquote, urlparse
@@ -439,6 +441,38 @@ def create_home(ctx):
     return 201, attach_insurance(ctx.db, [home_out(one(ctx.db, HOME_SUMMARY + " WHERE h.id = ?", (cur.lastrowid,)))])[0]
 
 
+class Raw:
+    """A non-JSON response (a file download)."""
+    def __init__(self, body, ctype, filename=None):
+        self.body, self.ctype, self.filename = body, ctype, filename
+
+
+def report_data(ctx, home_id):
+    st, home = get_home(ctx, home_id)
+    return report_mod.gather(ctx.db, home_id, home)
+
+
+def report_json(ctx, home_id):
+    return 200, report_data(ctx, home_id)
+
+
+def build_report(ctx, home_id):
+    """(pdf bytes, file name) for a home. ?photos=1 adds the item photos; ?hide_purchase_price=1 leaves out what was paid."""
+    data = report_data(ctx, home_id)
+    photos = ctx.query.get("photos", ["0"])[0] in ("1", "true", "yes")
+    show_price = ctx.query.get("hide_purchase_price", ["0"])[0] not in ("1", "true", "yes")
+    pdf = report_mod.build_pdf(data, photos, images_dir(), show_price=show_price)
+    slug = re.sub(r"[^A-Za-z0-9]+", "-", data["home"]["name"]).strip("-").lower() or "home"
+    name = "%s-inventory%s%s-%s.pdf" % (slug, "-photos" if photos else "", "" if show_price else "-no-purchase-price",
+                                      datetime.date.today().isoformat())
+    return pdf, name
+
+
+def report_pdf(ctx, home_id):
+    pdf, name = build_report(ctx, home_id)
+    return 200, Raw(pdf, "application/pdf", name)
+
+
 def get_home(ctx, id_):
     r = one(ctx.db, HOME_SUMMARY + " WHERE h.id = ?", (id_,))
     if not r:
@@ -655,13 +689,35 @@ def upload_image(ctx, id_):
         raise ApiError(400, "invalid base64 data")
     if not raw:
         raise ApiError(400, "empty image")
+    store_item_image(ctx.db, cur, kind, raw, IMAGE_TYPES[m.group(1)])
+    return 200, get_or_404(ctx.db, "items", id_)
+
+
+def store_item_image(conn, cur, kind, raw, ext):
     col = "image" if kind == "photo" else "similar_image"
-    fname = "%d-%s-%s.%s" % (id_, kind, uuid.uuid4().hex[:8], IMAGE_TYPES[m.group(1)])
+    fname = "%d-%s-%s.%s" % (cur["id"], kind, uuid.uuid4().hex[:8], ext)
     with open(os.path.join(images_dir(), fname), "wb") as fh:
         fh.write(raw)
-    ctx.db.execute("UPDATE items SET %s = ? WHERE id = ?" % col, (fname, id_))
-    ctx.db.commit()
+    conn.execute("UPDATE items SET %s = ? WHERE id = ?" % col, (fname, cur["id"]))
+    conn.commit()
     remove_image_files([cur[col]])
+
+
+def link_image(ctx, id_):
+    """Pull the product picture from the item's similar-item link and keep it as the equivalent-item image."""
+    cur = get_or_404(ctx.db, "items", id_)
+    url = text(ctx.body, "url") or cur["similar_url"]
+    if not url:
+        raise ApiError(400, "This item has no link to take a picture from.")
+    try:
+        final, doc = linkinfo.fetch_page(url, allow_private=ALLOW_PRIVATE_FETCH)
+        pic = linkinfo.extract_image(doc, final)
+        if not pic:
+            raise ApiError(404, "That page does not name a product picture.")
+        raw, mime, ext = linkinfo.fetch_image(pic, allow_private=ALLOW_PRIVATE_FETCH)
+    except linkinfo.LinkError as e:
+        raise ApiError(e.status, e.message)
+    store_item_image(ctx.db, cur, "similar", raw, ext)
     return 200, get_or_404(ctx.db, "items", id_)
 
 
@@ -799,8 +855,14 @@ def public_settings():
     return {"ollama": {"url": c["ollama_url"], "model": c["ollama_model"]},
             "anthropic": {"configured": bool(c["anthropic_key"]), "key_source": c["key_source"],
                           "model": c["anthropic_model"]},
+            "google": google_status(c["_raw"]),
             "defaults": {"ollama_url": default_ollama_url(), "ollama_model": DEFAULT_OLLAMA_MODEL,
                          "anthropic_model": DEFAULT_CLAUDE_MODEL}}
+
+
+def google_status(raw):
+    return {"client_id": raw.get("google_client_id", ""), "secret_configured": bool(raw.get("google_client_secret")),
+            "connected": bool(raw.get("google_refresh_token"))}
 
 
 def get_settings(ctx):
@@ -829,8 +891,76 @@ def put_settings(ctx):
             raw["anthropic_key"] = v
         else:
             raw.pop("anthropic_key", None)
+    changed = False
+    if "google_client_id" in b:
+        v = text(b, "google_client_id")
+        if v and (len(v) > 200 or re.search(r"\s", v)):
+            raise ApiError(400, "That does not look like a Google client id")
+        changed |= v != raw.get("google_client_id", "")
+        raw["google_client_id"] = v
+    if "google_client_secret" in b:
+        v = text(b, "google_client_secret")
+        if v and (len(v) > 200 or re.search(r"\s", v)):
+            raise ApiError(400, "That does not look like a Google client secret")
+        if v:
+            changed |= v != raw.get("google_client_secret", "")
+            raw["google_client_secret"] = v
+    if changed:    # a different client means the old sign-in no longer applies
+        raw.pop("google_refresh_token", None)
+        raw.pop("google_folder_id", None)
     save_settings(raw)
     return 200, public_settings()
+
+
+def google_auth_url(ctx):
+    raw = load_settings()["_raw"]
+    if not raw.get("google_client_id") or not raw.get("google_client_secret"):
+        raise ApiError(400, "Add your Google client id and secret first.")
+    return 200, {"url": gdrive.start_auth(raw["google_client_id"], "http://%s/oauth/google" % ctx.host)}
+
+
+def google_disconnect(ctx):
+    raw = load_settings()["_raw"]
+    raw.pop("google_refresh_token", None)
+    raw.pop("google_folder_id", None)
+    save_settings(raw)
+    return 200, public_settings()
+
+
+def google_callback_page(query, host):
+    """The page Google sends the browser back to. Returns (status, html)."""
+    def page(title, msg, status=200):
+        return status, ("<!doctype html><meta charset=utf-8><title>%s</title><body style='font:16px system-ui;max-width:34em;margin:4em auto;padding:0 1em'>"
+                        "<h2>%s</h2><p>%s</p><p><a href='/#/settings'>Back to Settings</a></p></body>" % (title, title, msg))
+    if query.get("error"):
+        return page("Google Drive not connected", "Google said: %s." % re.sub(r"[^\w .-]", "", query["error"][0])[:80], 400)
+    pend = gdrive.take_pending((query.get("state") or [""])[0])
+    code = (query.get("code") or [""])[0]
+    if not pend or not code:
+        return page("Google Drive not connected", "This sign-in link is not valid or has expired. Start again from Settings.", 400)
+    raw = load_settings()["_raw"]
+    try:
+        raw["google_refresh_token"] = gdrive.exchange_code(raw.get("google_client_id", ""), raw.get("google_client_secret", ""),
+                                                           code, pend[0], pend[1])
+    except gdrive.DriveError as e:
+        return page("Google Drive not connected", e.message.replace("<", "&lt;"), 400)
+    raw.pop("google_folder_id", None)
+    save_settings(raw)
+    return page("Google Drive connected", "You can close this tab and save reports to your Drive from the Report page.")
+
+
+def report_to_drive(ctx, home_id):
+    raw = load_settings()["_raw"]
+    if not raw.get("google_refresh_token"):
+        raise ApiError(400, "Google Drive is not connected. Connect it in Settings.")
+    pdf, name = build_report(ctx, home_id)
+    try:
+        token = gdrive.access_token(raw["google_client_id"], raw["google_client_secret"], raw["google_refresh_token"])
+        folder = gdrive.find_or_make_folder(token)
+        out = gdrive.upload(token, name, pdf, "application/pdf", folder)
+    except gdrive.DriveError as e:
+        raise ApiError(e.status if e.status in (400, 401, 403) else 502, e.message)
+    return 200, dict(out, folder=gdrive.FOLDER_NAME)
 
 
 # ---------- photo identification (Ollama local, Claude bring-your-own-key) ----------
@@ -1065,6 +1195,8 @@ ROUTES = [
     ("GET", r"/homes/%s" % ID, get_home),
     ("PUT", r"/homes/%s" % ID, update_home),
     ("DELETE", r"/homes/%s" % ID, delete_home),
+    ("GET", r"/homes/%s/report" % ID, report_json),
+    ("GET", r"/homes/%s/report\.pdf" % ID, report_pdf),
     ("GET", r"/homes/%s/rooms" % ID, list_rooms),
     ("POST", r"/homes/%s/rooms" % ID, create_room),
     ("GET", r"/homes/%s/insurance" % ID, get_insurance),
@@ -1079,10 +1211,14 @@ ROUTES = [
     ("PUT", r"/items/%s" % ID, update_item),
     ("DELETE", r"/items/%s" % ID, delete_item),
     ("POST", r"/items/%s/image" % ID, upload_image),
+    ("POST", r"/items/%s/link-image" % ID, link_image),
     ("POST", r"/identify", identify),
     ("POST", r"/classify", classify),
     ("POST", r"/receipt", receipt),
     ("POST", r"/link-info", link_price),
+    ("POST", r"/homes/%s/report/drive" % ID, report_to_drive),
+    ("GET", r"/google/auth-url", google_auth_url),
+    ("DELETE", r"/google", google_disconnect),
     ("GET", r"/settings", get_settings),
     ("PUT", r"/settings", put_settings),
     ("GET", r"/providers/status", providers_status),
@@ -1143,6 +1279,7 @@ class Handler(BaseHTTPRequestHandler):
             if m != method:
                 continue
             ctx = Ctx()
+            ctx.host = self.headers.get("Host") or "localhost"
             ctx.query = parse_qs(parsed.query)
             ctx.body = self.read_body() if method in ("POST", "PUT") else {}
             ctx.db = connect()
@@ -1151,6 +1288,16 @@ class Handler(BaseHTTPRequestHandler):
                     if mt.groups() else fn(ctx)
             finally:
                 ctx.db.close()
+            if isinstance(obj, Raw):
+                self.send_response(status)
+                self.send_header("Content-Type", obj.ctype)
+                if obj.filename:
+                    self.send_header("Content-Disposition", 'attachment; filename="%s"' % obj.filename)
+                self.send_header("Content-Length", str(len(obj.body)))
+                self.send_header("Cache-Control", "no-store")
+                self.end_headers()
+                self.wfile.write(obj.body)
+                return
             return self.send_json(status, obj)
         raise ApiError(405 if matched else 404, "method not allowed" if matched else "not found")
 
@@ -1179,6 +1326,16 @@ class Handler(BaseHTTPRequestHandler):
                 return self.handle_api(method, parsed)
             if method != "GET":
                 raise ApiError(405, "method not allowed")
+            if parsed.path == "/oauth/google":
+                status, page = google_callback_page(parse_qs(parsed.query), host)
+                data = page.encode()
+                self.send_response(status)
+                self.send_header("Content-Type", "text/html; charset=utf-8")
+                self.send_header("Content-Length", str(len(data)))
+                self.send_header("Cache-Control", "no-store")
+                self.end_headers()
+                self.wfile.write(data)
+                return
             if parsed.path.startswith("/images/"):
                 return self.serve_file(images_dir(), parsed.path[8:], {
                     "png": "image/png", "jpg": "image/jpeg", "webp": "image/webp",

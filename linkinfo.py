@@ -352,9 +352,93 @@ def extract_price(doc, url=""):
     return {"price": None, "currency": cur, "title": title[:200], "source": ""}
 
 
+def _image_urls(value):
+    """URLs inside a JSON-LD "image" value: a string, a list, or {"url": ...} objects."""
+    if isinstance(value, str):
+        yield value
+    elif isinstance(value, dict):
+        yield from _image_urls(value.get("url") or value.get("contentUrl"))
+    elif isinstance(value, list):
+        for v in value:
+            yield from _image_urls(v)
+
+
+def extract_image(doc, base=""):
+    """The product picture a page names: Product image in JSON-LD, then og:image / twitter:image. Absolute URL or ''."""
+    page = _Page()
+    try:
+        page.feed(doc)
+    except Exception:
+        pass
+    cands = []
+    for blob in page.ld:
+        try:
+            data = json.loads(blob)
+        except ValueError:
+            continue
+        found = []
+        _walk(data, found)
+        for prod in found:
+            cands.extend(_image_urls(prod.get("image")))
+    cands += [page.meta.get(k, "") for k in ("og:image", "og:image:secure_url", "twitter:image", "twitter:image:src", "image")]
+    for c in cands:
+        c = (c or "").strip()
+        if not c or c.startswith("data:"):
+            continue
+        u = urllib.parse.urljoin(base, c)
+        if re.match(r"^https?://", u, re.I):
+            return u
+    return ""
+
+
+IMAGE_MAX_BYTES = 4_000_000
+
+
+def _sniff_image(b):
+    if b[:3] == b"\xff\xd8\xff":
+        return "image/jpeg", "jpg"
+    if b[:8] == b"\x89PNG\r\n\x1a\n":
+        return "image/png", "png"
+    if b[:4] == b"RIFF" and b[8:12] == b"WEBP":
+        return "image/webp", "webp"
+    if b[:4] == b"GIF8":
+        return "image/gif", "gif"
+    return None
+
+
+def fetch_image(url, allow_private=False):
+    """(bytes, mime, ext) of a picture at a public http(s) address, same safety checks as pages."""
+    if not re.match(r"^https?://[^\s/]+", url or "", re.I):
+        raise LinkError("The page's picture link is not a web address.", 400)
+    req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT, "Accept": "image/*,*/*;q=0.5",
+                                               "Accept-Encoding": "identity"})
+    try:
+        with _make_opener(allow_private).open(req, timeout=TIMEOUT) as r:
+            if r.status >= 400:
+                raise LinkError("The picture could not be downloaded.", 400)
+            body = r.read(IMAGE_MAX_BYTES + 1)
+    except LinkError:
+        raise
+    except (socket.timeout, TimeoutError):
+        raise LinkError("The picture took too long to download.")
+    except urllib.error.HTTPError:
+        raise LinkError("The site would not give the picture.", 400)
+    except (urllib.error.URLError, OSError, ValueError) as e:
+        if isinstance(getattr(e, "reason", None), LinkError):
+            raise e.reason
+        raise LinkError("The picture could not be downloaded.")
+    if len(body) > IMAGE_MAX_BYTES:
+        raise LinkError("The page's picture is too large (over 4 MB).", 400)
+    kind = _sniff_image(body)
+    if not kind:
+        raise LinkError("The page's picture is not a PNG, JPEG, WebP or GIF image.", 400)
+    return body, kind[0], kind[1]
+
+
 def link_info(url, allow_private=False):
     final, doc = fetch_page(url, allow_private)
     out = extract_price(doc, final)
+    out["image"] = extract_image(doc, final)
     if out["price"] is None and looks_like_robot_check(doc):
         raise LinkError(BLOCKED_MESSAGE)
     out.update(url=final, host=re.sub(r"^www\.", "", urllib.parse.urlparse(final).hostname or ""))

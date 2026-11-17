@@ -662,14 +662,21 @@ class PageServer:
                 elif self.path == "/bad": code, loc = 302, "ftp://example.com/x"
                 elif self.path == "/forbidden": code = 403
                 elif self.path == "/img": ctype, body = "image/png", "x"
+                elif self.path == "/withpic": body = '<html><meta property="og:image" content="/pic.png"><title>P</title></html>'
+                elif self.path == "/ldpic": body = '<script type="application/ld+json">{"@type":"Product","name":"N","image":["/pic.png"]}</script>'
+                elif self.path == "/badpic": body = '<meta property="og:image" content="/notimg">'
+                elif self.path == "/notimg": body = "<html>not an image</html>"
                 elif self.path.startswith("/ip/Instant-Pot/45918917"): body = SYNTHETIC_NEXT_PAGE
                 elif self.path.startswith("/ip/Other/22222222"): body = SYNTHETIC_NEXT_PAGE      # id not in the data
                 elif self.path == "/robot": body = "<html><title>Robot or human?</title><div id='px-captcha'>Press &amp; Hold</div></html>"
                 elif self.path == "/blocked412": code, body = 412, "<html><div id='px-captcha'></div>Robot or human?</html>"
                 elif self.path == "/blocked403": code, body = 403, "<html>Forbidden</html>"
                 elif self.path == "/big": body = "<p>" + "x" * 2_000_000 + "</p>" + PRODUCT_PAGE
+                elif self.path == "/pic.png": pass
                 else: code = 404
                 raw = body.encode()
+                if self.path == "/pic.png":
+                    code, ctype, raw = 200, "image/png", base64.b64decode(PNG.split(",", 1)[1])
                 self.send_response(code)
                 if loc: self.send_header("Location", loc)
                 self.send_header("Content-Type", ctype); self.send_header("Content-Length", str(len(raw)))
@@ -681,6 +688,213 @@ class PageServer:
 
     def close(self):
         self.srv.shutdown(); self.srv.server_close()
+
+
+class FakeGoogle:
+    """Stands in for Google's token and Drive endpoints."""
+    def __init__(self):
+        outer = self
+        self.uploads, self.folders, self.token_forms = [], [], []
+        self.fail_refresh = False
+
+        class H(http.server.BaseHTTPRequestHandler):
+            def log_message(self, *a): pass
+            def reply(self, code, obj):
+                raw = json.dumps(obj).encode()
+                self.send_response(code); self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(raw))); self.end_headers(); self.wfile.write(raw)
+            def body(self):
+                return self.rfile.read(int(self.headers.get("Content-Length") or 0))
+            def do_POST(self):
+                import urllib.parse as up
+                b = self.body()
+                if self.path == "/token":
+                    f = {k: v[0] for k, v in up.parse_qs(b.decode()).items()}
+                    outer.token_forms.append(f)
+                    if f["client_secret"] != "good-secret":
+                        return self.reply(401, {"error": "invalid_client"})
+                    if f["grant_type"] == "authorization_code":
+                        return self.reply(200, {"access_token": "a1", "refresh_token": "r1"})
+                    if outer.fail_refresh or f["refresh_token"] != "r1":
+                        return self.reply(400, {"error": "invalid_grant"})
+                    return self.reply(200, {"access_token": "a2"})
+                if self.headers.get("Authorization") != "Bearer a2":
+                    return self.reply(401, {"error": {"message": "bad token"}})
+                if self.path.startswith("/upload/drive/v3/files"):
+                    outer.uploads.append((self.headers.get("Content-Type"), b))
+                    return self.reply(200, {"id": "F1", "name": "x.pdf", "webViewLink": "https://drive.google.com/file/d/F1/view"})
+                if self.path.startswith("/drive/v3/files"):
+                    outer.folders.append(json.loads(b))
+                    return self.reply(200, {"id": "FOLDER1"})
+                self.reply(404, {})
+            def do_GET(self):
+                if self.headers.get("Authorization") != "Bearer a2":
+                    return self.reply(401, {"error": {"message": "bad token"}})
+                self.reply(200, {"files": []})
+
+        self.srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), H)
+        self.url = "http://127.0.0.1:%d" % self.srv.server_address[1]
+        threading.Thread(target=self.srv.serve_forever, daemon=True).start()
+
+    def close(self):
+        self.srv.shutdown(); self.srv.server_close()
+
+
+def real_png(w=8, h=6):
+    import struct, zlib
+    def chunk(k, b):
+        c = k + b
+        return struct.pack(">I", len(b)) + c + struct.pack(">I", zlib.crc32(c) & 0xFFFFFFFF)
+    rows = b"".join(b"\x00" + b"\x40\x80\xc0" * w for _ in range(h))
+    return ("data:image/png;base64," + base64.b64encode(b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0))
+            + chunk(b"IDAT", zlib.compress(rows)) + chunk(b"IEND", b"")).decode())
+
+
+class ReportTest(ApiBase):
+    def make_home(self):
+        home = self.call("POST", "/api/homes", {"name": "Lake House", "street": "1 Main St", "city": "Austin", "state": "TX", "zip": "78701"}, 201)
+        room = self.call("POST", "/api/homes/%d/rooms" % home["id"], {"name": "Kitchen"}, 201)
+        for n in range(30):
+            self.call("POST", "/api/rooms/%d/items" % room["id"], {"name": "Item %d" % n, "description": "d " * 100 if n % 2 else "",
+                      "purchased_value": 10, "replacement_value": 12}, 201)
+        self.call("POST", "/api/homes/%d/rooms" % home["id"], {"name": "Empty room"}, 201)
+        return home
+
+    def fetch(self, path):
+        with urllib.request.urlopen(self.base + path) as r:
+            return r.read(), r.headers
+
+    def test_pdf_with_and_without_photos(self):
+        home = self.make_home()
+        items = self.call("GET", "/api/rooms/%d/items" % self.call("GET", "/api/homes/%d/rooms" % home["id"], expect=200)[1]["id"], expect=200)
+        self.call("POST", "/api/items/%d/image?kind=photo" % items[0]["id"], {"data": real_png()}, 200)
+        data, h = self.fetch("/api/homes/%d/report.pdf" % home["id"])
+        self.assertTrue(data.startswith(b"%PDF-1.4") and data.rstrip().endswith(b"%%EOF"))
+        self.assertEqual(h["Content-Type"], "application/pdf")
+        self.assertIn("attachment", h["Content-Disposition"])
+        self.assertIn("lake-house-inventory-", h["Content-Disposition"])
+        self.assertNotIn(b"/Subtype /Image", data)
+        pics, h2 = self.fetch("/api/homes/%d/report.pdf?photos=1" % home["id"])
+        self.assertIn(b"/Subtype /Image", pics)
+        self.assertIn("-photos-", h2["Content-Disposition"])
+        pages = data.count(b"/Type /Page ")
+        self.assertGreaterEqual(pages, 2)                      # 30 items need more than one page
+        rep = self.call("GET", "/api/homes/%d/report" % home["id"], expect=200)
+        self.assertEqual((rep["item_count"], rep["total_replacement"], len(rep["rooms"])), (30, 360, 2))
+        self.call("GET", "/api/homes/999/report.pdf", expect=404)
+
+    def test_hide_purchase_price(self):
+        import zlib, re
+        home = self.make_home()
+
+        def text_of(path):
+            data, h = self.fetch(path)
+            streams = re.findall(rb"stream\n(.*?)\nendstream", data, re.S)
+            out = b""
+            for s in streams:
+                try:
+                    out += zlib.decompress(s)
+                except zlib.error:
+                    pass
+            return out, h
+        shown, h1 = text_of("/api/homes/%d/report.pdf" % home["id"])
+        hidden, h2 = text_of("/api/homes/%d/report.pdf?hide_purchase_price=1" % home["id"])
+        self.assertIn(b"($300.00) Tj", shown); self.assertIn(b"($10.00) Tj", shown)
+        self.assertNotIn(b"($10.00) Tj", hidden); self.assertNotIn(b"($300.00) Tj", hidden)      # no per-item price, no total
+        self.assertIn(b"($12.00) Tj", hidden)                                                     # replacement cost stays
+        self.assertIn("-no-purchase-price-", h2["Content-Disposition"])
+        both, _ = text_of("/api/homes/%d/report.pdf?photos=1&hide_purchase_price=1" % home["id"])
+        self.assertNotIn(b"Purchased: $10.00", both)
+
+    def test_pdf_writer_basics(self):
+        import pdfwriter as pw
+        self.assertEqual(pw.wrap("a b c", 1000), ["a b c"])
+        self.assertTrue(all(pw.text_width(l, "F1", 10) <= 100 for l in pw.wrap("word " * 40 + "x" * 80, 100)))
+        self.assertIsNone(pw.load_image(b"not an image"))
+        self.assertEqual(pw.encode("caf\u00e9 \u2014 \u4e2d"), b"caf\xe9 \x97 ?")
+
+
+class GoogleDriveTest(ReportTest):
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.google = FakeGoogle()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.google.close()
+        super().tearDownClass()
+
+    def setUp(self):
+        import gdrive
+        self.gd = gdrive
+        for k, v in (("TOKEN_URL", self.google.url + "/token"), ("API_URL", self.google.url), ("AUTH_URL", "https://accounts.example/auth")):
+            self.addCleanup(setattr, gdrive, k, getattr(gdrive, k)); setattr(gdrive, k, v)
+        self.google.uploads.clear(); self.google.folders.clear(); self.google.token_forms.clear(); self.google.fail_refresh = False
+        self.call("DELETE", "/api/google", expect=200)
+        self.call("PUT", "/api/settings", {"google_client_id": "", "google_client_secret": "x"}, 200)
+
+    def connect(self, secret="good-secret"):
+        self.call("PUT", "/api/settings", {"google_client_id": "cid.apps.example", "google_client_secret": secret}, 200)
+        url = self.call("GET", "/api/google/auth-url", expect=200)["url"]
+        import urllib.parse as up
+        q = {k: v[0] for k, v in up.parse_qs(up.urlparse(url).query).items()}
+        return q
+
+    def callback(self, **params):
+        import urllib.parse as up
+        try:
+            with urllib.request.urlopen(self.base + "/oauth/google?" + up.urlencode(params)) as r:
+                return r.status, r.read().decode()
+        except urllib.error.HTTPError as e:
+            return e.code, e.read().decode()
+
+    def test_connect_and_upload(self):
+        self.assertFalse(self.call("GET", "/api/settings", expect=200)["google"]["connected"])
+        q = self.connect()
+        self.assertEqual((q["client_id"], q["scope"], q["code_challenge_method"], q["access_type"]),
+                         ("cid.apps.example", "https://www.googleapis.com/auth/drive.file", "S256", "offline"))
+        self.assertTrue(q["redirect_uri"].endswith("/oauth/google"))
+        status, html = self.callback(code="abc", state="forged")
+        self.assertEqual(status, 400)                                   # unknown state is refused
+        self.assertFalse(self.call("GET", "/api/settings", expect=200)["google"]["connected"])
+        status, html = self.callback(code="abc", state=q["state"])
+        self.assertEqual(status, 200); self.assertIn("connected", html)
+        form = self.google.token_forms[-1]
+        self.assertEqual((form["grant_type"], form["code"]), ("authorization_code", "abc"))
+        self.assertTrue(form["code_verifier"])
+        s = self.call("GET", "/api/settings", expect=200)["google"]
+        self.assertEqual((s["connected"], s["client_id"], s["secret_configured"]), (True, "cid.apps.example", True))
+        self.assertNotIn("good-secret", json.dumps(self.call("GET", "/api/settings", expect=200)))     # secret never returned
+        self.assertNotIn("r1", json.dumps(self.call("GET", "/api/settings", expect=200)["google"]))
+        self.assertEqual(self.callback(code="abc", state=q["state"])[0], 400)       # state is single use
+        home = self.make_home()
+        out = self.call("POST", "/api/homes/%d/report/drive?photos=1" % home["id"], {}, 200)
+        self.assertEqual((out["link"], out["folder"]), ("https://drive.google.com/file/d/F1/view", "Home Inventory"))
+        self.assertEqual(self.google.folders, [{"name": "Home Inventory", "mimeType": "application/vnd.google-apps.folder"}])
+        ctype, body = self.google.uploads[-1]
+        self.assertIn("multipart/related", ctype)
+        self.assertIn(b"%PDF-1.4", body); self.assertIn(b'"parents": ["FOLDER1"]', body); self.assertIn(b"lake-house-inventory-photos-", body)
+        mode = oct(os.stat(os.path.join(server.DATA_DIR, "settings.json")).st_mode & 0o777)
+        self.assertEqual(mode, "0o600")
+
+    def test_errors(self):
+        home = self.make_home()
+        self.call("POST", "/api/homes/%d/report/drive" % home["id"], {}, 400)          # not connected
+        self.call("DELETE", "/api/google", expect=200)
+        self.call("PUT", "/api/settings", {"google_client_id": "", "google_client_secret": ""}, 200)
+        self.call("GET", "/api/google/auth-url", expect=400)                            # needs client id first
+        q = self.connect(secret="wrong")
+        status, html = self.callback(code="abc", state=q["state"])
+        self.assertEqual(status, 400); self.assertIn("client id or secret", html)
+        q = self.connect()
+        self.callback(code="abc", state=q["state"])
+        self.google.fail_refresh = True
+        r = self.call("POST", "/api/homes/%d/report/drive" % home["id"], {}, 401)
+        self.assertIn("Connect Google Drive again", r["error"])
+        self.assertEqual(self.callback(error="access_denied")[0], 400)
+        self.call("PUT", "/api/settings", {"google_client_id": "other"}, 200)           # new client drops the old sign-in
+        self.assertFalse(self.call("GET", "/api/settings", expect=200)["google"]["connected"])
 
 
 class LinkPriceTest(ApiBase):
@@ -702,6 +916,29 @@ class LinkPriceTest(ApiBase):
         r = self.call("POST", "/api/link-info", {"url": self.shop.url + "/ok"}, 200)
         self.assertEqual((r["price"], r["currency"], r["title"], r["source"]), (349.99, "USD", "KitchenAid Mixer", "json-ld"))
         self.assertEqual(r["host"], "127.0.0.1")
+
+    def test_picture_from_link(self):
+        home = self.call("POST", "/api/homes", {"name": "H"}, 201)
+        room = self.call("POST", "/api/homes/%d/rooms" % home["id"], {"name": "R"}, 201)
+        it = self.call("POST", "/api/rooms/%d/items" % room["id"], {"name": "X", "similar_url": self.shop.url + "/withpic"}, 201)
+        r = self.call("POST", "/api/link-info", {"url": self.shop.url + "/withpic"}, 200)
+        self.assertEqual(r["image"], self.shop.url + "/pic.png")
+        r = self.call("POST", "/api/link-info", {"url": self.shop.url + "/ok"}, 200)
+        self.assertEqual(r["image"], "")
+        out = self.call("POST", "/api/items/%d/link-image" % it["id"], {}, 200)
+        self.assertTrue(out["similar_image"].endswith(".png"))
+        first = out["similar_image"]
+        with urllib.request.urlopen(self.base + "/images/" + first) as resp:
+            self.assertEqual(resp.read()[:4], b"\x89PNG")
+        out = self.call("POST", "/api/items/%d/link-image" % it["id"], {"url": self.shop.url + "/ldpic"}, 200)   # json-ld image list
+        self.assertNotEqual(out["similar_image"], first)
+        self.assertFalse(os.path.exists(os.path.join(server.images_dir(), first)))   # old picture removed
+        self.call("POST", "/api/items/%d/link-image" % it["id"], {"url": self.shop.url + "/none"}, 404)
+        self.call("POST", "/api/items/%d/link-image" % it["id"], {"url": self.shop.url + "/badpic"}, 400)
+        server.ALLOW_PRIVATE_FETCH = False
+        self.call("POST", "/api/items/%d/link-image" % it["id"], {"url": self.shop.url + "/withpic"}, 400)   # private address refused
+        no_link = self.call("POST", "/api/rooms/%d/items" % room["id"], {"name": "Y"}, 201)
+        self.call("POST", "/api/items/%d/link-image" % no_link["id"], {}, 400)
 
     def test_price_from_meta_and_redirect(self):
         r = self.call("POST", "/api/link-info", {"url": self.shop.url + "/meta"}, 200)

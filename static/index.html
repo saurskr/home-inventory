@@ -45,9 +45,12 @@ th{font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--mute
 .tray .err:empty{display:none}
 .idmsg.err{color:var(--red);font-weight:600}
 /* toolbar buttons */
-.toolbar button.add{display:inline-flex;align-items:center;gap:8px;padding:9px 16px;font-size:15px;font-weight:600}
+.top-add{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.top-add .add{display:inline-flex;align-items:center;gap:6px;padding:5px 12px;font-size:14px;font-weight:600;text-decoration:none;cursor:pointer}
+.top-add .add[hidden]{display:none}
+a.btn.add{border:1px solid var(--line);border-radius:var(--r-sm);background:var(--surface);color:var(--text)}
 .add svg,.drop svg{fill:none;stroke:currentColor;stroke-linecap:round;stroke-linejoin:round}
-.add svg{width:16px;height:16px;stroke-width:1.9}
+.add svg{width:14px;height:14px;stroke-width:1.9}
 /* spinner: "the model is working" */
 .spin{display:inline-block;width:14px;height:14px;border:2px solid color-mix(in srgb,var(--accent) 25%,transparent);border-top-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite;vertical-align:-2px}
 .spin.lg{width:34px;height:34px;border-width:4px}
@@ -104,6 +107,8 @@ table.rv td:nth-child(2) input{width:calc(100% - 40px);min-width:160px}
   padding:8px 16px;border-radius:999px;opacity:0;transition:opacity .2s;pointer-events:none;z-index:60}
 .toast.show{opacity:1}
 .top h1{font-size:19px}
+.top{flex-wrap:wrap}.top-actions{flex-wrap:wrap;justify-content:flex-end}
+@media(max-width:700px){.top-actions{width:100%;justify-content:flex-start}}
 /* actions row directly under the header */
 .toolbar{max-width:1280px;margin:0 auto;padding:16px 24px 0;display:flex;gap:8px;align-items:center}
 /* home display */
@@ -172,7 +177,9 @@ dl.lim dd{margin:0;text-align:right;font-variant-numeric:tabular-nums}
 .sect{border-top:1px solid var(--line);padding-top:10px}
 .vals{display:flex;gap:28px;align-items:flex-end;flex-wrap:wrap}.bigmoney{font-size:26px;font-weight:700;line-height:1.1}
 .meter{height:10px;border-radius:5px;background:var(--line);overflow:hidden;margin:8px 0 4px}.meter i{display:block;height:100%;background:var(--accent)}
-button.big{font-size:17px;padding:10px 22px;flex:1;min-width:200px}
+button.big{font-size:14px;padding:5px 14px;font-weight:600}
+.eq-thumb{width:72px;height:56px;object-fit:cover;border-radius:var(--r-sm);display:block}
+.eq{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
 .pimgs{display:grid;grid-template-columns:1fr 1fr;gap:14px}
 @container (max-width:439px){.pimgs{grid-template-columns:1fr}}
 .pane .desc{font-size:14px;color:var(--muted);white-space:pre-wrap}
@@ -231,7 +238,7 @@ html[data-density="compact"] td .btns button{padding:0 8px}
 .cov.gap{border-color:var(--amber)}
 .cov b{white-space:nowrap}
 @media(max-width:1000px){.split{grid-template-columns:1fr}.split>section{order:0}.pane{position:static}.ins-grid{grid-template-columns:1fr 1fr}}
-@media(max-width:560px){.th-txt{display:none}.two,.ins-grid,.addr3{grid-template-columns:1fr}.rider{grid-template-columns:minmax(0,1fr) 100px auto}.top{padding:10px 14px}.toolbar{padding:12px 14px 0}main{padding:12px 14px 50px}}
+@media(max-width:560px){.th-txt{display:none}.two,.ins-grid,.addr3{grid-template-columns:1fr}.rider{grid-template-columns:minmax(0,1fr) 100px auto}.top{padding:10px 14px}main{padding:12px 14px 50px}}
 </style>
 </head>
 <body>
@@ -244,10 +251,10 @@ html[data-density="compact"] td .btns button{padding:0 8px}
   <div class="content">
     <header class="top"><h1 id="title">Homes</h1>
       <div class="top-actions">
+        <div class="top-add" id="topAdd"><button class="primary add" id="add" type="button" hidden></button><button class="add" id="add2" type="button" hidden></button><a class="btn add" id="reportBtn" role="button" hidden>Report</a></div>
         <div class="seg" role="group" aria-label="List density">
           <button type="button" data-d="comfortable">Comfortable</button><button type="button" data-d="compact">Compact</button></div>
         <button id="theme" class="themebtn" type="button"></button></div></header>
-    <div class="toolbar" id="toolbar" hidden><button class="primary add" id="add" type="button"></button><button class="add" id="add2" type="button" hidden></button></div>
     <main id="app"></main>
   </div>
 </div>
@@ -272,6 +279,12 @@ function toast(msg) {
   const t = $("#toast"); t.textContent = msg; t.classList.add("show");
   clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.remove("show"), 2200);
 }
+/* photos are stored as JPEG (max 1600 px): smaller files, and the PDF report can embed them */
+const readImage = async f => {
+  const url = await readFile(f);
+  if (!/^data:image\/(png|jpeg|webp)/.test(url)) return url;
+  try { return await downscale(url, 1600); } catch (e) { return url; }
+};
 const readFile = f => new Promise((ok, no) => {
   const r = new FileReader(); r.onload = () => ok(r.result); r.onerror = no; r.readAsDataURL(f);
 });
@@ -423,10 +436,11 @@ const ICONS = {
   plus: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3v10M3 8h10"/></svg>',
   camera: '<svg viewBox="0 0 16 16" aria-hidden="true"><rect x="1.5" y="4.5" width="13" height="9" rx="2"/><circle cx="8" cy="9" r="2.6"/><path d="M5.5 4.5l1-2h3l1 2"/></svg>'
 };
-function chrome(title, addLabel, onAdd, second) {
+function chrome(title, addLabel, onAdd, second, reportHome) {
   $("#title").textContent = title; document.title = title + " · Home Inventory";
-  const b = $("#add"), b2 = $("#add2");
-  $("#toolbar").hidden = !addLabel;
+  const b = $("#add"), b2 = $("#add2"), rb = $("#reportBtn");
+  b.hidden = !addLabel;
+  rb.hidden = !reportHome; if (reportHome) rb.href = "#/home/" + reportHome + "/report";
   b.innerHTML = addLabel ? ICONS.plus + "<span>" + esc(addLabel.replace(/^\+\s*/, "")) + "</span>" : ""; b.onclick = onAdd || null;
   b2.hidden = !second;
   if (second) { b2.innerHTML = ICONS[second.icon] + "<span>" + esc(second.label) + "</span>"; b2.onclick = second.onClick; }
@@ -629,7 +643,7 @@ async function homesView() {
 async function homeView(id) {
   const [home, rooms] = await Promise.all([api("GET", "/homes/" + id), api("GET", `/homes/${id}/rooms`)]);
   await buildNav(id, null);
-  chrome(home.name, "+ Add room", () => roomAddForm(id));
+  chrome(home.name, "+ Add room", () => roomAddForm(id), null, id);
   const tp = rooms.reduce((s, r) => s + r.total_purchased, 0), tr = rooms.reduce((s, r) => s + r.total_replacement, 0);
   app.innerHTML = `<div class="crumbs"><a href="#/">Homes</a> / ${esc(home.name)}</div>
     ${stats([["Rooms", home.room_count], ["Items", home.item_count],
@@ -692,6 +706,57 @@ async function roomEditForm(r) {
 
 /* ---------- settings: local model + bring-your-own Claude key ---------- */
 const OLLAMA_MODELS = ["qwen2.5vl:7b", "qwen2.5vl:3b", "gemma3:4b"];
+/* ---------- report: every item in a home, as a page, a PDF download, or a file in Google Drive ---------- */
+let reportOpts = {photos: false, hidePrice: false};
+try { Object.assign(reportOpts, JSON.parse(localStorage.getItem("reportOpts") || "{}")); } catch (e) {}
+async function reportView(id) {
+  const [data, cfg] = await Promise.all([api("GET", `/homes/${id}/report`), api("GET", "/settings")]);
+  const home = data.home;
+  await buildNav(id, null);
+  chrome("Report", null, null, null, null);
+  const connected = cfg.google && cfg.google.connected;
+  app.innerHTML = `<div class="crumbs"><a href="#/">Homes</a> / <a href="#/home/${id}">${esc(home.name)}</a> / Report</div>
+    <section class="panel"><div class="panel-head"><h2>Inventory report</h2><span class="sub">${esc(home.name)} · ${data.item_count} item${data.item_count === 1 ? "" : "s"} in ${data.rooms.length} room${data.rooms.length === 1 ? "" : "s"}</span></div>
+      <div class="pane-body">
+        <div class="opts"><label class="toggle"><input type="checkbox" id="ro_photos"> Include item photos</label>
+          <label class="toggle"><input type="checkbox" id="ro_price"> Hide the purchased price</label></div>
+        <div class="btns"><a class="btn primary" id="ro_pdf" role="button" download>Download PDF</a>
+          <button type="button" id="ro_drive" ${connected ? "" : "disabled"}>Save to Google Drive</button></div>
+        <div class="sub idmsg" id="ro_msg" role="status">${connected ? "Saves into a “Home Inventory” folder in your Google Drive." :
+          'To save to Google Drive, <a href="#/settings">connect it in Settings</a> first.'}</div>
+      </div></section>
+    <div id="ro_preview"></div>`;
+  const photosEl = $("#ro_photos"), priceEl = $("#ro_price");
+  photosEl.checked = !!reportOpts.photos; priceEl.checked = !!reportOpts.hidePrice;
+  const qs = () => `photos=${photosEl.checked ? 1 : 0}&hide_purchase_price=${priceEl.checked ? 1 : 0}`;
+  const draw = () => {
+    reportOpts = {photos: photosEl.checked, hidePrice: priceEl.checked};
+    try { localStorage.setItem("reportOpts", JSON.stringify(reportOpts)); } catch (e) {}
+    $("#ro_pdf").href = `/api/homes/${id}/report.pdf?${qs()}`;
+    const hide = priceEl.checked, ph = photosEl.checked;
+    $("#ro_preview").innerHTML = (data.rooms.length ? data.rooms.map(r => `<section class="panel"><div class="panel-head"><h2>${esc(r.name)}</h2>
+      <span class="sub">${r.items.length} item${r.items.length === 1 ? "" : "s"} · replacement ${money(r.total_replacement)}</span></div>
+      ${r.items.length ? `<div class="table-wrap"><table><thead><tr>${ph ? '<th aria-label="Photo"></th>' : ""}<th>Item</th><th>Details</th><th>Purchased</th><th class="num">Replacement</th></tr></thead><tbody>
+        ${r.items.map(i => `<tr>${ph ? `<td>${i.image ? `<img class="eq-thumb" src="/images/${esc(i.image)}" alt="">` : ""}</td>` : ""}
+          <td><b>${esc(i.name)}</b><div class="sub">${esc([i.inv_no, i.item_type].filter(Boolean).join(" · "))}</div></td>
+          <td>${esc([i.brand, i.model_number].filter(Boolean).join(" "))}<div class="sub">${esc(i.description)}</div></td>
+          <td>${hide ? "" : esc(money(i.purchased_value)) + "<br>"}<span class="sub">${esc([fmtYmd(i.purchased_date), i.purchased_condition].filter(Boolean).join(" · "))}</span></td>
+          <td class="num">${esc(money(i.replacement_value))}<div class="sub">${esc(fmtYmd(i.replacement_date))}</div></td></tr>`).join("")}</tbody></table></div>`
+        : '<div class="empty">No items in this room.</div>'}</section>`).join("")
+      : '<div class="panel"><div class="empty">This home has no rooms yet.</div></div>');
+  };
+  photosEl.onchange = priceEl.onchange = draw; draw();
+  const drive = $("#ro_drive"), msg = $("#ro_msg");
+  drive.onclick = async () => {
+    drive.disabled = true; setStatus(msg, "Saving to Google Drive…", "busy");
+    try {
+      const r = await api("POST", `/homes/${id}/report/drive?${qs()}`, {});
+      msg.className = "sub idmsg"; msg.innerHTML = `✔ Saved <b>${esc(r.name)}</b> in the “${esc(r.folder)}” folder. <a href="${esc(r.link)}" target="_blank" rel="noopener noreferrer">Open in Drive ↗</a>`;
+    } catch (e) { setStatus(msg, e.message, "err"); }
+    drive.disabled = false;
+  };
+}
+
 const CLAUDE_MODELS = ["claude-haiku-5-5", "claude-sonnet-5-5"];
 async function settingsView() {
   const [cfg, st, om] = await Promise.all([api("GET", "/settings"), api("GET", "/providers/status"), api("GET", "/providers/ollama-models")]);
@@ -731,7 +796,30 @@ async function settingsView() {
         <div class="err" id="catErr" role="alert"></div>
         <p class="muted" style="margin:0">Built-in categories can't be removed. A custom one can be removed once no item uses it.</p>
       </div></section>`;
-  app.innerHTML = catsHtml + `
+  const g = cfg.google || {};
+  const redirect = location.origin + "/oauth/google";
+  const googleHtml = `<section class="panel"><div class="panel-head"><h2>Google Drive</h2><span class="sub">optional · save reports to your own Drive</span></div>
+      <form class="ins-body" id="setGoogle">
+        ${g.connected ? '<div class="cov ok"><span aria-hidden="true">✔</span><div><b>Connected.</b> Reports can be saved to a “Home Inventory” folder in your Drive. The app can only see files it creates.</div></div>'
+          : '<div class="cov"><span aria-hidden="true">ℹ</span><div>Not connected. You need your own free Google sign-in (client id and secret). Steps are below.</div></div>'}
+        <div class="ins-grid">
+          <div class="field" style="grid-column:span 2"><label for="g_id">Client id</label><input id="g_id" name="google_client_id" value="${esc(g.client_id || "")}" autocomplete="off" placeholder="1234-abc.apps.googleusercontent.com"></div>
+          <div class="field" style="grid-column:span 2"><label for="g_secret">Client secret</label><input id="g_secret" name="google_client_secret" type="password" autocomplete="off" placeholder="${g.secret_configured ? "Saved. Paste a new one to replace it" : "GOCSPX-…"}"></div>
+        </div>
+        <div class="err" id="gErr" role="alert"></div>
+        <div class="btns"><button class="primary" type="submit">Save</button>
+          <button type="button" id="gConnect" ${g.client_id && g.secret_configured ? "" : "disabled"}>${g.connected ? "Reconnect" : "Connect Google Drive"}</button>
+          ${g.connected ? '<button class="danger" type="button" id="gDisconnect">Disconnect</button>' : ""}</div>
+        <details class="more"><summary>How to get a client id and secret</summary>
+          <ol style="margin:8px 0 0;padding-left:20px;line-height:1.6">
+            <li>Open <b>console.cloud.google.com</b>, create a project, then turn on the <b>Google Drive API</b> (APIs &amp; Services → Library).</li>
+            <li>APIs &amp; Services → <b>OAuth consent screen</b>: choose External, fill in the app name and your email, and add your own Google account under <b>Test users</b>.</li>
+            <li>Credentials → <b>Create credentials → OAuth client ID</b> → type <b>Desktop app</b>. Copy the client id and secret here.</li>
+            <li>If you choose <i>Web application</i> instead, add this redirect address: <code>${esc(redirect)}</code></li>
+            <li>Press <b>Connect Google Drive</b> and approve. The app asks only for access to files it creates itself.</li>
+          </ol><p class="muted" style="margin:8px 0 0">The secret is kept in a file on this computer (owner-only) and is never shown again. While the consent screen is in “testing”, Google asks you to sign in again about every 7 days.</p></details>
+      </form></section>`;
+  app.innerHTML = catsHtml + googleHtml + `
     <section class="panel"><div class="panel-head"><h2>Local model (Ollama)</h2><span class="sub">default · free · photos stay on this computer</span></div>
       <form class="ins-body" id="setLocal">${note}
         <div class="ins-grid">
@@ -769,6 +857,24 @@ async function settingsView() {
     try { await api("PUT", "/settings", {ollama_model: b.dataset.useModel}); toast("Now using " + b.dataset.useModel); route(); }
     catch (err) { $("#locErr").textContent = err.message; }
   });
+  $("#setGoogle").onsubmit = async e => { e.preventDefault(); const f = e.target, body = {google_client_id: f.elements.google_client_id.value};
+    if (f.elements.google_client_secret.value.trim()) body.google_client_secret = f.elements.google_client_secret.value;
+    try { await api("PUT", "/settings", body); toast("Google settings saved"); route(); } catch (err) { $("#gErr").textContent = err.message; } };
+  const gc = $("#gConnect");
+  if (gc) gc.onclick = async () => {
+    try {
+      const r = await api("GET", "/google/auth-url"); window.open(r.url, "_blank", "noopener");
+      $("#gErr").textContent = "";
+      for (let i = 0; i < 60; i++) {      // wait (up to 2 minutes) for the approval in the other tab
+        await new Promise(ok => setTimeout(ok, 2000));
+        if (location.hash !== "#/settings") return;
+        if ((await api("GET", "/settings")).google.connected) { toast("Google Drive connected"); route(); return; }
+      }
+    } catch (err) { $("#gErr").textContent = err.message; }
+  };
+  const gd = $("#gDisconnect");
+  if (gd) gd.onclick = async () => { if (!confirm("Disconnect Google Drive? Files already saved stay in your Drive.")) return;
+    await api("DELETE", "/google"); toast("Disconnected"); route(); };
   $("#addCat").onsubmit = async e => { e.preventDefault();
     try { const r = await api("POST", "/categories", {name: $("#s_cat").value}); META.item_types = r.item_types; toast("Category added"); route(); }
     catch (err) { $("#catErr").textContent = err.message; } };
@@ -787,7 +893,7 @@ const downscale = (url, max = 1024) => new Promise((ok, no) => {
   im.onload = () => {
     const k = Math.min(1, max / Math.max(im.width, im.height)), c = document.createElement("canvas");
     c.width = Math.round(im.width * k); c.height = Math.round(im.height * k);
-    c.getContext("2d").drawImage(im, 0, 0, c.width, c.height); ok(c.toDataURL("image/jpeg", 0.85));
+    const g = c.getContext("2d"); g.fillStyle = "#fff"; g.fillRect(0, 0, c.width, c.height); g.drawImage(im, 0, 0, c.width, c.height); ok(c.toDataURL("image/jpeg", 0.85));
   };
   im.onerror = () => no(new Error("This browser can't read that image. iPhone HEIC photos need converting to JPEG or PNG first."));
   im.src = url;
@@ -911,7 +1017,9 @@ function wireLink(pane, item) {
     msg.querySelectorAll("[data-use]").forEach(b => b.onclick = async () => {
       const body = {similar_url: url};
       if (b.dataset.use === "both") body.replacement_value = info.price;
-      try { await api("PUT", "/items/" + item.id, body); toast(b.dataset.use === "both" ? "Link and price saved" : "Link saved"); route(); }
+      try { await api("PUT", "/items/" + item.id, body);
+        if (info.image) { try { await api("POST", `/items/${item.id}/link-image`, {url}); } catch (e) {} }   // the picture is a bonus; a failure here is not an error
+        toast(b.dataset.use === "both" ? "Link and price saved" : "Link saved"); route(); }
       catch (e) { setStatus(msg, e.message, "err"); }
     });
   };
@@ -928,8 +1036,8 @@ function paneHtml(item, roomName = "") {
     ? `<a href="/images/${esc(item.image)}" target="_blank" rel="noopener"><img class="hero-img" src="/images/${esc(item.image)}" alt="Photo of ${esc(item.name)}"></a>`
     : `<div class="hero-img ph-empty">No photo</div>`;
   const sim = item.similar_image
-    ? `<a href="/images/${esc(item.similar_image)}" target="_blank" rel="noopener"><img class="ph" src="/images/${esc(item.similar_image)}" alt="Equivalent item for ${esc(item.name)}"></a>`
-    : `<div class="ph-empty">No image of an equivalent item</div>`;
+    ? `<a href="/images/${esc(item.similar_image)}" target="_blank" rel="noopener"><img class="eq-thumb" src="/images/${esc(item.similar_image)}" alt="Equivalent item for ${esc(item.name)}"></a>`
+    : `<span class="muted">${url ? "No picture yet" : "Add a link to get a picture"}</span>`;
   const dash = '<span class="muted">—</span>';
   const row = (label, value, cls = "") => `<dt>${label}</dt><dd class="${cls}">${value ? esc(value) : dash}</dd>`;
   const rowHtml = (label, html, cls = "") => `<dt>${label}</dt><dd class="${cls}">${html}</dd>`;
@@ -962,7 +1070,7 @@ function paneHtml(item, roomName = "") {
       </dl></div>
       <div class="pimgs">
         <div><h4>Photo</h4><div class="btns"><button class="small" data-pick="photo">${item.image ? "Replace photo" : "Add photo"}</button></div></div>
-        <div><h4>Equivalent item</h4>${sim}<div class="btns" style="margin-top:6px"><button class="small" data-pick="similar">${item.similar_image ? "Replace image" : "Add image"}</button></div></div>
+        <div><h4>Equivalent item</h4><div class="eq">${sim}<div class="btns">${url ? `<button class="small" data-act="pull" title="Take the product picture from the link">Pull from link</button>` : ""}<button class="small" data-pick="similar">${item.similar_image ? "Replace" : "Upload"}</button></div></div><div class="sub idmsg" id="pullMsg" role="status"></div></div>
       </div>
     </div>`;
 }
@@ -972,7 +1080,7 @@ function pickImage(itemId, kind) {
   inp.type = "file"; inp.accept = "image/*";
   inp.onchange = async () => {
     if (!inp.files[0]) return;
-    try { await api("POST", `/items/${itemId}/image?kind=${kind}`, {data: await readFile(inp.files[0])}); toast("Image saved"); route(); }
+    try { await api("POST", `/items/${itemId}/image?kind=${kind}`, {data: await readImage(inp.files[0])}); toast("Image saved"); route(); }
     catch (err) { toast(err.message); }
   };
   inp.click();
@@ -993,7 +1101,7 @@ async function roomView(id) {
   const room = await api("GET", "/rooms/" + id);
   const [home, items] = await Promise.all([api("GET", "/homes/" + room.home_id), api("GET", `/rooms/${id}/items`)]);
   await buildNav(home.id, room.id);
-  chrome(room.name, "Add item", () => itemForm(room), {label: "Add items by image", icon: "camera", onClick: () => batchForm(room)});
+  chrome(room.name, "Add item", () => itemForm(room), {label: "Add items by image", icon: "camera", onClick: () => batchForm(room)}, room.home_id);
   if (sel.room !== id) { sel.room = id; sel.item = null; }
   if (listState.room !== id) { listState.room = id; listState.page = 1; }
   if (!items.some(i => i.id === sel.item)) sel.item = null;
@@ -1013,6 +1121,10 @@ async function roomView(id) {
     pane.querySelectorAll("[data-pick]").forEach(b => b.onclick = () => pickImage(item.id, b.dataset.pick));
     const ed = pane.querySelector('[data-act="edit"]'); if (ed) ed.onclick = () => itemForm(room, item);
     wireFind(pane, item); wireLink(pane, item);
+    const pull = pane.querySelector('[data-act="pull"]');
+    if (pull) pull.onclick = async () => { setStatus($("#pullMsg", pane), "Getting the picture from the link…", "busy");
+      try { await api("POST", `/items/${item.id}/link-image`, {}); toast("Picture saved"); route(); }
+      catch (e) { setStatus($("#pullMsg", pane), e.message, "err"); } };
     const cf = pane.querySelector('[data-act="confirm"]');
     if (cf) cf.onclick = async () => { await api("PUT", "/items/" + item.id, {price_confirmed: true}); toast("Price marked current"); route(); };
     app.querySelectorAll("tbody tr[data-id]").forEach(tr => {
@@ -1128,6 +1240,9 @@ async function itemForm(room, item) {
     const saved = item ? await api("PUT", "/items/" + item.id, b) : await api("POST", `/rooms/${roomId}/items`, b);
     for (const k of ["photo", "similar"])
       if (imgs[k]) await api("POST", `/items/${saved.id}/image?kind=${k}`, {data: imgs[k]});
+    if (saved.similar_url && saved.similar_url !== (item?.similar_url || "") && !imgs.similar) {   // new link: take its product picture
+      try { await api("POST", `/items/${saved.id}/link-image`, {}); } catch (e) {}
+    }
     sel.item = saved.id; toast("Item saved"); await closeTray(); route();
   }, {wide: true, tray: !!item || ADD_ITEM_IN_DRAWER, width: 720, confirmClose: () => !baseline || snap() === baseline || confirm("Discard your changes?")});
   const snap = () => [...$("form", d).elements].filter(e => e.name && e.type !== "file").map(e => e.value).join("\u0001") + "|" + !!imgs.photo + !!imgs.similar;
@@ -1148,13 +1263,13 @@ async function itemForm(room, item) {
   const showPhoto = url => { $('[data-prev="photo"]', d).src = url; box.hidden = false; drop.hidden = true; $("#changePhoto", d).hidden = false; };
   photoInp.onchange = async () => {
     const f = photoInp.files[0]; if (!f) return;
-    const url = await readFile(f); imgs.photo = url; showPhoto(url);
+    const url = await readImage(f); imgs.photo = url; showPhoto(url);
     const auto = $("#idAuto", d); if (auto && auto.checked) runId("ollama");
   };
   const similarInp = d.querySelector('input[data-kind="similar"]');
   similarInp.onchange = async () => {
     const f = similarInp.files[0]; if (!f) return;
-    const url = await readFile(f); imgs.similar = url;
+    const url = await readImage(f); imgs.similar = url;
     const p = $('[data-prev="similar"]', d); p.src = url; p.hidden = false;
   };
   const col = $(".photo-col", d);
@@ -1404,7 +1519,8 @@ async function route() {
   closeEditors();
   const [, kind, id] = location.hash.split("/");
   try {
-    if (kind === "home") await homeView(+id);
+    if (kind === "home" && location.hash.split("/")[3] === "report") await reportView(+id);
+    else if (kind === "home") await homeView(+id);
     else if (kind === "room") await roomView(+id);
     else if (kind === "settings") await settingsView();
     else await homesView();
