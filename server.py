@@ -11,6 +11,9 @@ import sys
 import urllib.error
 import urllib.request
 import uuid
+
+import linkinfo
+import receipt_module as rm
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
@@ -20,6 +23,7 @@ DATA_DIR = os.environ.get("INVENTORY_DATA_DIR", os.path.join(BASE_DIR, "data"))
 
 ITEM_TYPES = ["Appliance", "Furniture", "Electronics", "Memorabilia",
               "Media", "Collectible", "Clothing"]
+RECEIPT_CATEGORIES = ITEM_TYPES + ["Consumable", "Other"]  # receipt lines are sorted into these
 SOURCES = ["manual", "template", "vision"]
 
 US_STATES = [
@@ -66,6 +70,8 @@ DEFAULT_OLLAMA_MODEL = "qwen2.5vl:7b"
 DEFAULT_CLAUDE_MODEL = "claude-haiku-5-5"
 ANTHROPIC_BASE_URL = os.environ.get("ANTHROPIC_BASE_URL", "https://api.anthropic.com")
 MAX_CLAUDE_IMAGE = 5 * 1024 * 1024
+ALLOW_PRIVATE_FETCH = False  # link price lookups refuse private/local addresses (tests flip this)
+
 ALLOWED_HOSTS = re.compile(r"^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$", re.I)
 
 IMAGE_TYPES = {"image/png": "png", "image/jpeg": "jpg", "image/webp": "webp",
@@ -791,55 +797,28 @@ def parse_item(content):
             "search_query": clean_str(content.get("search_query"), 200)}
 
 
-def identify_ollama(cfg, b64):
-    model, base = cfg["ollama_model"], cfg["ollama_url"].rstrip("/")
+def make_provider(cfg, provider):
+    """The reusable receipt_module providers, configured from this app's settings."""
+    if provider == "anthropic":
+        return rm.AnthropicProvider(cfg["anthropic_key"], cfg["anthropic_model"], ANTHROPIC_BASE_URL)
+    return rm.OllamaProvider(cfg["ollama_url"], cfg["ollama_model"])
+
+
+def provider_call(fn):
     try:
-        out = http_json("POST", base + "/api/chat", {
-            "model": model, "stream": False, "format": ITEM_SCHEMA, "options": {"temperature": 0},
-            "messages": [{"role": "user", "content": PROMPT, "images": [b64]}]},
-            timeout=300, local=True)
-    except ProviderError as e:
-        if e.timeout:
-            raise ApiError(502, "Ollama took longer than 5 minutes. Try a smaller model such as qwen2.5vl:3b.")
-        if e.status is None:
-            raise ApiError(502, "Could not reach Ollama at %s. Is it running? Start it with 'ollama serve'." % base)
-        if e.status == 404:
-            raise ApiError(502, "Model '%s' is not installed in Ollama. Run: ollama pull %s" % (model, model))
-        raise ApiError(502, "Ollama returned an error (HTTP %s)." % e.status)
-    return parse_item((out.get("message") or {}).get("content", ""))
+        return fn()
+    except rm.ProviderError as e:
+        msg = e.message
+        if e.kind == "auth":
+            msg += " Check it in Settings."
+        elif e.kind == "model_missing" and "Anthropic" in msg:
+            msg += " Check the model name in Settings."
+        raise ApiError(502, msg)
+    except rm.ReceiptError as e:
+        raise ApiError(400 if e.kind == "bad_image" else 502, e.message)
 
 
-def identify_claude(cfg, media, b64):
-    model = cfg["anthropic_model"]
-    tool = {"name": "record_item", "description": "Record the identified household item.",
-            "input_schema": ITEM_SCHEMA}
-    try:
-        out = http_json("POST", ANTHROPIC_BASE_URL.rstrip("/") + "/v1/messages", {
-            "model": model, "max_tokens": 700, "tools": [tool],
-            "tool_choice": {"type": "tool", "name": "record_item"},
-            "messages": [{"role": "user", "content": [
-                {"type": "image", "source": {"type": "base64", "media_type": media, "data": b64}},
-                {"type": "text", "text": PROMPT}]}]},
-            headers={"x-api-key": cfg["anthropic_key"], "anthropic-version": "2023-06-01"}, timeout=90)
-    except ProviderError as e:
-        if e.timeout or e.status is None:
-            raise ApiError(502, "Could not reach the Anthropic API. Check your internet connection.")
-        if e.status in (401, 403):
-            raise ApiError(502, "Anthropic rejected the API key. Check it in Settings.")
-        if e.status == 404:
-            raise ApiError(502, "Anthropic does not know the model '%s'. Check the model name in Settings." % model)
-        if e.status == 429:
-            raise ApiError(502, "Anthropic rate limit or spending limit reached. Try again later.")
-        raise ApiError(502, "Anthropic returned an error (HTTP %s)." % e.status)
-    block = next((c for c in out.get("content", []) if c.get("type") == "tool_use"), None)
-    return parse_item(block.get("input") if block else None)
-
-
-def identify(ctx):
-    b = ctx.body
-    provider = b.get("provider", "ollama")
-    if provider not in ("ollama", "anthropic"):
-        raise ApiError(400, "provider must be ollama or anthropic")
+def read_request_image(b):
     m = re.match(r"^data:([\w/+.-]+);base64,(.*)$", b.get("data") or "", re.S)
     if not m or m.group(1) not in IMAGE_TYPES:
         raise ApiError(400, "data must be a base64 data URL (png, jpeg, webp, gif)")
@@ -849,19 +828,60 @@ def identify(ctx):
         raise ApiError(400, "invalid base64 data")
     if not raw:
         raise ApiError(400, "empty image")
+    return m.group(1), m.group(2), len(raw)
+
+
+def request_provider(b, raw_len):
+    """Validated provider choice for a request: (name, module provider, model name)."""
+    provider = b.get("provider", "ollama")
+    if provider not in ("ollama", "anthropic"):
+        raise ApiError(400, "provider must be ollama or anthropic")
     cfg = load_settings()
     if provider == "anthropic":
         if not cfg["anthropic_key"]:
             raise ApiError(400, "Claude is not set up. Add your API key in Settings.")
-        if len(raw) > MAX_CLAUDE_IMAGE:
+        if raw_len > MAX_CLAUDE_IMAGE:
             raise ApiError(400, "Image is over Claude's 5 MB limit. Use a smaller photo.")
-        result = identify_claude(cfg, m.group(1), m.group(2))
-        result["model"] = cfg["anthropic_model"]
-    else:
-        result = identify_ollama(cfg, m.group(2))
-        result["model"] = cfg["ollama_model"]
-    result["provider"] = provider
+    model = cfg["anthropic_model"] if provider == "anthropic" else cfg["ollama_model"]
+    return provider, make_provider(cfg, provider), model
+
+
+def identify(ctx):
+    b = ctx.body
+    provider = b.get("provider", "ollama")
+    if provider not in ("ollama", "anthropic"):
+        raise ApiError(400, "provider must be ollama or anthropic")
+    media, b64, n = read_request_image(b)
+    provider, prov, model = request_provider(b, n)
+    result = parse_item(provider_call(lambda: prov.chat_json(PROMPT, ITEM_SCHEMA, b64, media)))
+    result.update(model=model, provider=provider)
     return 200, result
+
+
+def classify(ctx):
+    """Is this photo a receipt, an item, or something else?"""
+    media, b64, n = read_request_image(ctx.body)
+    provider, prov, model = request_provider(ctx.body, n)
+    kind = provider_call(lambda: rm.classify_image(prov, ctx.body["data"]))
+    return 200, {"kind": kind, "provider": provider, "model": model}
+
+
+def receipt(ctx):
+    """Read the line items of a receipt photo (see receipt_module/)."""
+    media, b64, n = read_request_image(ctx.body)
+    provider, prov, model = request_provider(ctx.body, n)
+    out = provider_call(lambda: rm.extract_receipt(prov, ctx.body["data"], RECEIPT_CATEGORIES))
+    out.update(provider=provider, model=model)
+    return 200, out
+
+
+def link_price(ctx):
+    """Fetch a pasted product link and report the price the page publishes."""
+    url = text(ctx.body, "url", True)
+    try:
+        return 200, linkinfo.link_info(url, allow_private=ALLOW_PRIVATE_FETCH)
+    except linkinfo.LinkError as e:
+        raise ApiError(e.status, e.message)
 
 
 def providers_status(ctx):
@@ -902,6 +922,9 @@ ROUTES = [
     ("DELETE", r"/items/%s" % ID, delete_item),
     ("POST", r"/items/%s/image" % ID, upload_image),
     ("POST", r"/identify", identify),
+    ("POST", r"/classify", classify),
+    ("POST", r"/receipt", receipt),
+    ("POST", r"/link-info", link_price),
     ("GET", r"/settings", get_settings),
     ("PUT", r"/settings", put_settings),
     ("GET", r"/providers/status", providers_status),

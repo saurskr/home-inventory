@@ -358,8 +358,8 @@ class FakeProvider:
         self.srv.shutdown(); self.srv.server_close()
 
 
-class IdentifyTest(ApiBase):
-    """Photo-to-item against fake Ollama / Claude servers (no real model needed)."""
+class FakeProvidersBase(ApiBase):
+    """Starts fake Ollama / Claude servers (no real model needed)."""
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
@@ -381,6 +381,11 @@ class IdentifyTest(ApiBase):
 
     ITEM = {"name": " Stand Mixer ", "brand": "KitchenAid", "item_type": "appliance",
             "description": "Red tilt-head mixer.", "search_query": "kitchenaid artisan 5qt red"}
+
+
+
+class IdentifyTest(FakeProvidersBase):
+    """Photo-to-item."""
 
     def test_defaults_and_status(self):
         st = self.call("GET", "/api/settings", expect=200)
@@ -436,7 +441,7 @@ class IdentifyTest(ApiBase):
         hdr = {k.lower(): v for k, v in headers.items()}
         self.assertEqual(hdr["x-api-key"], "sk-ant-test-key-1234567890")
         self.assertIn("anthropic-version", hdr)
-        self.assertEqual(body["tool_choice"], {"type": "tool", "name": "record_item"})
+        self.assertEqual(body["tool_choice"], {"type": "tool", "name": "record"})
         img = body["messages"][0]["content"][0]
         self.assertEqual((img["type"], img["source"]["media_type"]), ("image", "image/png"))
         self.assertEqual(self.ollama.requests, [])                      # cloud mode never touches Ollama
@@ -465,6 +470,136 @@ class IdentifyTest(ApiBase):
             c.putheader("Content-Length", str(len(body))); c.endheaders(body)
             self.assertEqual(c.getresponse().status, want, host + " " + ctype)
             c.close()
+
+
+RECEIPT_REPLY = {"store": "Target", "date": "03/02/2026", "currency": "USD", "subtotal": 389.97, "tax": 31.2,
+                 "total": 421.17, "line_items": [
+                     {"description": "Toaster", "quantity": 1, "unit_price": 29.99, "total_price": 29.99, "category": "Appliance"},
+                     {"description": "Nightstand", "quantity": 2, "unit_price": 179.99, "total_price": 359.98, "category": "Furniture"},
+                     {"description": "Bananas", "quantity": 1, "unit_price": 1.2, "total_price": 1.2, "category": "Consumable"},
+                     {"description": "TOTAL", "quantity": 1, "unit_price": 421.17, "total_price": 421.17, "category": "Other"}]}
+
+
+class BatchEndpointsTest(FakeProvidersBase):
+    """/classify and /receipt through the same fake Ollama / Claude servers."""
+
+    def test_classify(self):
+        self.ollama.reply = {"message": {"content": '{"kind": "receipt"}'}}
+        r = self.call("POST", "/api/classify", {"data": PNG}, 200)
+        self.assertEqual((r["kind"], r["provider"], r["model"]), ("receipt", "ollama", "qwen2.5vl:7b"))
+        self.assertEqual(self.ollama.requests[-1][2]["format"]["properties"]["kind"]["enum"], ["receipt", "item", "other"])
+        self.ollama.reply = {"message": {"content": '{"kind": "banana"}'}}
+        self.assertEqual(self.call("POST", "/api/classify", {"data": PNG}, 200)["kind"], "other")
+        self.call("POST", "/api/classify", {"data": "junk"}, 400)
+
+    def test_receipt(self):
+        self.ollama.reply = {"message": {"content": json.dumps(RECEIPT_REPLY)}}
+        r = self.call("POST", "/api/receipt", {"data": PNG}, 200)
+        self.assertEqual((r["store"], r["date"], r["provider"]), ("Target", "2026-03-02", "ollama"))
+        self.assertEqual([i["description"] for i in r["items"]], ["Toaster", "Nightstand", "Bananas"])
+        self.assertEqual(r["items"][1]["quantity"], 2)
+        cats = self.ollama.requests[-1][2]["format"]["properties"]["line_items"]["items"]["properties"]["category"]["enum"]
+        self.assertEqual(cats, server.ITEM_TYPES + ["Consumable", "Other"])
+        self.ollama.reply = {"message": {"content": "not json"}}
+        self.call("POST", "/api/receipt", {"data": PNG}, 502)
+
+    def test_receipt_and_classify_with_claude(self):
+        self.call("POST", "/api/receipt", {"data": PNG, "provider": "anthropic"}, 400)       # no key yet
+        self.call("PUT", "/api/settings", {"anthropic_key": "sk-ant-test-key-1234567890"}, 200)
+        self.claude.reply = {"content": [{"type": "tool_use", "name": "record", "input": RECEIPT_REPLY}]}
+        r = self.call("POST", "/api/receipt", {"data": PNG, "provider": "anthropic"}, 200)
+        self.assertEqual((r["provider"], r["model"], len(r["items"])), ("anthropic", "claude-haiku-5-5", 3))
+        self.claude.reply = {"content": [{"type": "tool_use", "name": "record", "input": {"kind": "item"}}]}
+        self.assertEqual(self.call("POST", "/api/classify", {"data": PNG, "provider": "anthropic"}, 200)["kind"], "item")
+        self.assertEqual(self.ollama.requests, [])
+        self.call("PUT", "/api/settings", {"anthropic_key": ""}, 200)
+
+
+PRODUCT_PAGE = ("<html><head><title>Mixer page</title><script type='application/ld+json'>"
+                '{"@type":"Product","name":"KitchenAid Mixer","offers":{"@type":"Offer","price":"349.99","priceCurrency":"USD"}}'
+                "</script></head><body>hi</body></html>")
+
+
+class PageServer:
+    """A pretend shop: /ok has a price, /meta uses og tags, /none has none, /redir and /bad redirect, /forbidden is 403."""
+    def __init__(self):
+        outer = self
+
+        class H(http.server.BaseHTTPRequestHandler):
+            def log_message(self, *a): pass
+            def do_GET(self):
+                code, ctype, body, loc = 200, "text/html; charset=utf-8", "", None
+                if self.path == "/ok": body = PRODUCT_PAGE
+                elif self.path == "/meta": body = '<meta property="og:price:amount" content="1,299.50"><meta property="og:price:currency" content="EUR"><title>T</title>'
+                elif self.path == "/none": body = "<html><body>Price: $5 (in text only)</body></html>"
+                elif self.path == "/redir": code, loc = 302, "/ok"
+                elif self.path == "/bad": code, loc = 302, "ftp://example.com/x"
+                elif self.path == "/forbidden": code = 403
+                elif self.path == "/img": ctype, body = "image/png", "x"
+                elif self.path == "/big": body = "<p>" + "x" * 2_000_000 + "</p>" + PRODUCT_PAGE
+                else: code = 404
+                raw = body.encode()
+                self.send_response(code)
+                if loc: self.send_header("Location", loc)
+                self.send_header("Content-Type", ctype); self.send_header("Content-Length", str(len(raw)))
+                self.end_headers(); self.wfile.write(raw)
+
+        self.srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), H)
+        self.url = "http://127.0.0.1:%d" % self.srv.server_address[1]
+        threading.Thread(target=self.srv.serve_forever, daemon=True).start()
+
+    def close(self):
+        self.srv.shutdown(); self.srv.server_close()
+
+
+class LinkPriceTest(ApiBase):
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.shop = PageServer()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.shop.close()
+        super().tearDownClass()
+
+    def setUp(self):
+        server.ALLOW_PRIVATE_FETCH = True      # the fake shop is on localhost
+        self.addCleanup(setattr, server, "ALLOW_PRIVATE_FETCH", False)
+
+    def test_price_from_json_ld(self):
+        r = self.call("POST", "/api/link-info", {"url": self.shop.url + "/ok"}, 200)
+        self.assertEqual((r["price"], r["currency"], r["title"], r["source"]), (349.99, "USD", "KitchenAid Mixer", "json-ld"))
+        self.assertEqual(r["host"], "127.0.0.1")
+
+    def test_price_from_meta_and_redirect(self):
+        r = self.call("POST", "/api/link-info", {"url": self.shop.url + "/meta"}, 200)
+        self.assertEqual((r["price"], r["currency"], r["source"]), (1299.5, "EUR", "meta"))
+        r = self.call("POST", "/api/link-info", {"url": self.shop.url + "/redir"}, 200)
+        self.assertEqual(r["price"], 349.99)
+        self.assertTrue(r["url"].endswith("/ok"))
+
+    def test_no_price_is_not_guessed(self):
+        r = self.call("POST", "/api/link-info", {"url": self.shop.url + "/none"}, 200)
+        self.assertIsNone(r["price"])
+
+    def test_big_page_is_capped_and_errors_are_friendly(self):
+        self.call("POST", "/api/link-info", {"url": self.shop.url + "/big"}, 200)     # truncated, still answers
+        e = self.call("POST", "/api/link-info", {"url": self.shop.url + "/forbidden"}, 502)
+        self.assertIn("by hand", e["error"])
+        self.assertIn("not found", self.call("POST", "/api/link-info", {"url": self.shop.url + "/nope"}, 400)["error"])
+        self.assertIn("not a web page", self.call("POST", "/api/link-info", {"url": self.shop.url + "/img"}, 400)["error"])
+        self.assertIn("not a web page", self.call("POST", "/api/link-info", {"url": self.shop.url + "/bad"}, 400)["error"])
+        for bad in ("javascript:alert(1)", "ftp://x.example/", "file:///etc/passwd", "not a url", ""):
+            self.call("POST", "/api/link-info", {"url": bad}, 400)
+
+    def test_private_addresses_are_refused(self):
+        server.ALLOW_PRIVATE_FETCH = False
+        for u in (self.shop.url + "/ok", "http://localhost:%s/ok" % self.shop.url.rsplit(":", 1)[1],
+                  "http://169.254.169.254/latest/meta-data/", "http://192.168.1.1/", "http://10.0.0.5/",
+                  "http://[::1]/", "http://0.0.0.0/"):
+            e = self.call("POST", "/api/link-info", {"url": u}, 400)
+            self.assertIn("private or local", e["error"], u)
 
 
 if __name__ == "__main__":

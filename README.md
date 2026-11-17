@@ -5,7 +5,8 @@ Python 3.9+ standard library only (http.server + sqlite3), vanilla JS frontend.
 
 ```bash
 python3 server.py          # http://localhost:8000  (PORT=9000 to change)
-python3 test_api.py        # API tests
+python3 test_api.py        # app tests
+python3 -m unittest discover -s receipt_module/tests -t .   # receipt module tests
 ```
 
 UI styling comes from the shared design system (`static/ds/`, a vendored copy of github.com/saurskr/design-system: Warm Paper / Midnight themes, Auto/Light/Dark switch in the sidebar).
@@ -28,6 +29,8 @@ Item types: Appliance, Furniture, Electronics, Memorabilia, Media, Collectible, 
 - `similar_url` must be http(s). Rooms and homes report purchased and replacement totals.
 - `POST /items/:id/image?kind=photo|similar` with `{data: "<base64 data URL>"}`
 - `POST /identify` with `{data: <image data URL>, provider: "ollama" | "anthropic"}` returns `{name, brand, item_type, description, search_query, provider, model}` for you to review before saving (save with `source: "vision"`)
+- `POST /classify` `{data, provider?}` -> `{kind: receipt|item|other}`; `POST /receipt` `{data, provider?}` -> store, date, totals, `items`, `warnings` (see `receipt_module/`)
+- `POST /link-info` `{url}` -> `{price, currency, title, host, source}` (price is `null` when the page does not publish one)
 - `GET|PUT /settings` (Ollama address and model, Claude model, API key; the key is write-only and never returned), `GET /providers/status`
 
 ## Photo identification
@@ -42,10 +45,26 @@ Environment overrides: `OLLAMA_HOST`, `ANTHROPIC_API_KEY`, `ANTHROPIC_BASE_URL`,
 Security: the API only accepts `Host: localhost|127.0.0.1|[::1]` (blocks DNS rebinding) and requires `Content-Type: application/json`
 on writes (blocks cross-site form posts). Add more hosts with `INVENTORY_ALLOWED_HOSTS` and add authentication before LAN use.
 
-## Find similar
-Each item has a **Find similar** button (item pane and item form). It opens a web search for an equivalent item in a new tab
-(Google Shopping, DuckDuckGo or Amazon, remembered per browser), using the item's brand and name, or the photo model's own search words
-until you edit the name. Copy the address of a result into *Link to a similar item*. Only the search words leave your computer, and only when you click.
+## Adding items
+- **Add item:** a compact form with the photo on the left and the fields on the right. Choosing a photo runs the local model
+  (a spinning "LLM working" wheel shows over the photo) and fills in name, brand, type and description for you to check.
+- **Add items by image:** choose up to 20 photos at once. Each is classified as an item photo or a **receipt**. Item photos become
+  one row each; receipts are read line by line (quantity, price, category). Everything lands in one review table where you edit,
+  untick and set quantities; nothing is saved until you click *Add*. Food and supplies on a receipt start unticked.
+  "Read as receipt / item" re-reads an image if it was classified wrongly.
+- Receipt reading lives in a standalone, reusable package: [`receipt_module/`](receipt_module/README.md).
+
+## Find similar, and prices from links
+In the item pane, **Find similar** asks a few questions (brand or any brand, model/size/color, new or used, max price) and opens the
+store search you choose (Google Shopping, Amazon, Walmart, Target, Best Buy, eBay or the web) in a new tab. Only your search words leave
+your computer, and only when you click. Price and condition filters are added to the address where the store supports them; I could not
+check every store's parameters, so treat them as a convenience.
+
+Paste a product link (in the pane, or into *Link to a similar item* in the form) and the app reads the page for its price
+(`POST /api/link-info`). It uses structured data the site publishes (JSON-LD, Open Graph / product meta tags) and never guesses from
+page text, so some sites return nothing, and many large retailers block automated reads or load prices with JavaScript; enter the price
+by hand then. USD prices are offered as the replacement value; other currencies are shown but not used. The page fetch refuses
+private/local addresses, re-checks every redirect, reads at most 1.5 MB and only HTML. It does not use a system proxy.
 
 ## Roadmap
 1. Compare candidate vision models on your own photos (small bake-off script).

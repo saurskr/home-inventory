@@ -36,9 +36,61 @@ th{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--mute
 .err{color:var(--red);min-height:1.2em;margin-top:8px}
 .editor .form-fields{max-width:640px;display:flex;flex-direction:column;gap:10px}
 .form-actions{margin-top:4px}
-.editor a{color:var(--accent)}
+.editor a,.pane a{color:var(--accent)}
 .idmsg.err{color:var(--red);font-weight:600}
-select.eng{width:auto;padding:3px 6px;font-size:12px}
+/* toolbar buttons */
+.toolbar button.add{display:inline-flex;align-items:center;gap:8px;padding:9px 16px;font-size:14px;font-weight:600}
+.add svg,.drop svg{fill:none;stroke:currentColor;stroke-linecap:round;stroke-linejoin:round}
+.add svg{width:16px;height:16px;stroke-width:1.9}
+/* spinner: "the model is working" */
+.spin{display:inline-block;width:14px;height:14px;border:2px solid color-mix(in srgb,var(--accent) 25%,transparent);border-top-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite;vertical-align:-2px}
+.spin.lg{width:34px;height:34px;border-width:4px}
+@keyframes spin{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.spin{animation-duration:2.4s}}
+.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+/* photo drop zone and preview */
+.drop{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;text-align:center;min-height:150px;padding:14px;border:2px dashed var(--line);border-radius:var(--r);color:var(--muted);cursor:pointer;background:var(--surface-2);font-size:13px}
+.drop:hover,.drop.over{border-color:var(--accent);color:var(--text)}
+.drop b{color:var(--text);font-size:14px}
+.drop svg{width:30px;height:30px;stroke-width:1.5}
+.photo-col:has(.sr-only:focus-visible) .drop,.batch-pick:has(.sr-only:focus-visible) .drop{outline:3px solid var(--accent);outline-offset:2px}
+.photo-box{position:relative}
+.preview-lg{display:block;width:100%;aspect-ratio:4/3;object-fit:cover;border-radius:var(--r-sm);border:1px solid var(--line);background:var(--surface-2)}
+.photo-busy{position:absolute;inset:0;display:none;flex-direction:column;align-items:center;justify-content:center;gap:8px;text-align:center;padding:8px;
+  background:color-mix(in srgb,var(--surface) 78%,transparent);border-radius:var(--r-sm);font-size:13px;font-weight:600}
+.photo-box.busy .photo-busy{display:flex}
+.btn-like{display:inline-block;border:1px solid var(--line);background:var(--surface);border-radius:var(--r-sm);padding:2px 10px;font-size:12px;cursor:pointer}
+.btn-like:hover{background:var(--surface-2)}
+.more summary{cursor:pointer;font-size:13px;color:var(--muted)}
+.more input{margin-top:6px}
+/* two-column Add Item: photo on the left, fields on the right */
+.item-layout{display:grid;grid-template-columns:240px minmax(0,1fr);gap:18px;align-items:start}
+.photo-col{display:flex;flex-direction:column;gap:8px}
+.item-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px 12px}
+.item-grid .s2{grid-column:span 2}
+.item-grid .s4{grid-column:span 4}
+.item-grid textarea{min-height:56px}
+.editor.wide .form-fields{max-width:none}
+@media(max-width:900px){.item-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.item-grid .s4{grid-column:span 2}}
+@media(max-width:700px){.item-layout{grid-template-columns:1fr}.item-grid{grid-template-columns:1fr}.item-grid .s2,.item-grid .s4{grid-column:auto}}
+/* find similar */
+.find-box{display:flex;flex-direction:column;gap:8px;margin-top:8px;padding:10px;border:1px solid var(--line);border-radius:var(--r-sm);background:var(--surface-2)}
+.stores{display:flex;flex-wrap:wrap;gap:6px}
+/* add items by image */
+.batch-pick{display:grid;grid-template-columns:260px minmax(0,1fr);gap:16px;align-items:start}
+.batch-opts{display:flex;flex-direction:column;gap:10px}
+.bq{display:flex;flex-direction:column;gap:6px}
+.bq-item{display:flex;gap:10px;align-items:center;padding:6px 8px;border:1px solid var(--line);border-radius:var(--r-sm);background:var(--surface-2)}
+.bq-main{flex:1;min-width:0}
+.err-text{color:var(--red)}
+.thumb.sm{width:28px;height:28px;display:inline-block;vertical-align:middle;margin-right:6px}
+table.rv td,table.rv th{padding:5px 8px}
+table.rv input:not([type=checkbox]),table.rv select{padding:3px 6px;min-width:70px}
+table.rv td.num input{width:80px;text-align:right}
+table.rv td:nth-child(2){white-space:nowrap}
+table.rv td:nth-child(2) input{width:calc(100% - 40px);min-width:160px}
+.rv-head td{background:var(--surface-2);font-size:13px}
+@media(max-width:700px){.batch-pick{grid-template-columns:1fr}}
 .toast{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);background:var(--head);color:var(--head-text);
   padding:8px 16px;border-radius:999px;opacity:0;transition:opacity .2s;pointer-events:none;z-index:60}
 .toast.show{opacity:1}
@@ -145,7 +197,7 @@ html[data-density="compact"] td .btns button{padding:0 8px}
       <div class="top-actions">
         <div class="seg" role="group" aria-label="List density">
           <button type="button" data-d="comfortable">Comfortable</button><button type="button" data-d="compact">Compact</button></div></div></header>
-    <div class="toolbar" id="toolbar" hidden><button class="primary" id="add" type="button"></button></div>
+    <div class="toolbar" id="toolbar" hidden><button class="primary add" id="add" type="button"></button><button class="add" id="add2" type="button" hidden></button></div>
     <main id="app"></main>
   </div>
 </div>
@@ -239,30 +291,14 @@ function itemIcons(i) {
     `${icon("price", ps, priceLabel(i))}</span>`;
 }
 const safeUrl = u => /^https?:\/\/\S+$/i.test(u || "") ? u : null;
-/* ---------- "Find similar": open a web search for an equivalent item in a new tab ---------- */
-const ENGINES = {
-  gshop: ["Google Shopping", q => "https://www.google.com/search?tbm=shop&q=" + encodeURIComponent(q)],
-  ddg: ["DuckDuckGo", q => "https://duckduckgo.com/?q=" + encodeURIComponent(q)],
-  amazon: ["Amazon", q => "https://www.amazon.com/s?k=" + encodeURIComponent(q)]
-};
-let engine = "gshop";
-try { engine = localStorage.getItem("engine") || "gshop"; } catch (e) {}
-if (!ENGINES[engine]) engine = "gshop";
-const engineSelect = id => `<select id="${id}" class="eng" aria-label="Search with">${Object.entries(ENGINES).map(([k, v]) =>
-  `<option value="${k}" ${k === engine ? "selected" : ""}>${v[0]}</option>`).join("")}</select>`;
-function findSimilar(query, sel) {
-  engine = sel.value;
-  try { localStorage.setItem("engine", engine); } catch (e) {}
-  window.open(ENGINES[engine][1](query), "_blank", "noopener,noreferrer");
-}
 const hostOf = u => { try { return new URL(u).hostname.replace(/^www\./, ""); } catch (e) { return u; } };
 
 /* ---------- inline form panel: opens at the top of the page, never as a popup ---------- */
 const closeEditors = () => document.querySelectorAll(".editor").forEach(e => e.remove());
-function form(title, html, onSubmit, {submit = "Save", hint = ""} = {}) {
+function form(title, html, onSubmit, {submit = "Save", hint = "", wide = false} = {}) {
   closeEditors();
   const panel = document.createElement("section");
-  panel.className = "panel editor"; panel.id = "editor";
+  panel.className = "panel editor" + (wide ? " wide" : ""); panel.id = "editor";
   panel.innerHTML = `<div class="panel-head"><h2>${esc(title)}</h2>${hint ? `<span class="sub">${esc(hint)}</span>` : ""}</div>
     <form class="ins-body"><div class="form-fields">${html}</div><div class="err" role="alert"></div>
     <div class="btns form-actions"><button class="primary">${esc(submit)}</button>
@@ -310,9 +346,17 @@ async function buildNav(homeId, roomId, settings = false) {
     ul.hidden = !ul.hidden; b.setAttribute("aria-expanded", String(!ul.hidden));
   });
 }
-function chrome(title, addLabel, onAdd) {
+const ICONS = {
+  plus: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3v10M3 8h10"/></svg>',
+  camera: '<svg viewBox="0 0 16 16" aria-hidden="true"><rect x="1.5" y="4.5" width="13" height="9" rx="2"/><circle cx="8" cy="9" r="2.6"/><path d="M5.5 4.5l1-2h3l1 2"/></svg>'
+};
+function chrome(title, addLabel, onAdd, second) {
   $("#title").textContent = title; document.title = title + " · Home Inventory";
-  const b = $("#add"); $("#toolbar").hidden = !addLabel; b.textContent = addLabel || ""; b.onclick = onAdd || null;
+  const b = $("#add"), b2 = $("#add2");
+  $("#toolbar").hidden = !addLabel;
+  b.innerHTML = addLabel ? ICONS.plus + "<span>" + esc(addLabel.replace(/^\+\s*/, "")) + "</span>" : ""; b.onclick = onAdd || null;
+  b2.hidden = !second;
+  if (second) { b2.innerHTML = ICONS[second.icon] + "<span>" + esc(second.label) + "</span>"; b2.onclick = second.onClick; }
 }
 const stats = list => `<div class="stats">${list.map(([k, v]) => `<div class="stat"><span>${esc(k)}</span><b>${v}</b></div>`).join("")}</div>`;
 
@@ -640,6 +684,104 @@ const downscale = (url, max = 1024) => new Promise((ok, no) => {
 /* ---------- room view: item pane (left, always visible) + list ---------- */
 const sel = {room: null, item: null};
 
+/* ---------- status line with an optional spinner ---------- */
+function setStatus(el, text, kind) {
+  el.className = "sub idmsg " + (kind || "");
+  el.innerHTML = (kind === "busy" ? '<span class="spin" aria-hidden="true"></span> ' : kind === "err" ? "⚠ " : kind === "ok" ? "✔ " : "") + esc(text);
+}
+
+/* ---------- Find similar: ask a few clarifying questions, then open a store search in a new tab ---------- */
+const enc = encodeURIComponent;
+const googleTbs = o => {
+  const t = ["mr:1"];
+  if (o.max) t.push("price:1", "ppr_max:" + o.max);
+  if (o.cond === "new") t.push("new:1"); if (o.cond === "used") t.push("used:1");
+  return "&tbs=" + t.join(",");
+};
+const STORES = {
+  gshop: ["Google Shopping", (q, o) => "https://www.google.com/search?tbm=shop&q=" + enc(q) + googleTbs(o)],
+  amazon: ["Amazon", (q, o) => "https://www.amazon.com/s?k=" + enc(q) + (o.max ? "&high-price=" + o.max : "")],
+  walmart: ["Walmart", (q, o) => "https://www.walmart.com/search?q=" + enc(q) + (o.max ? "&max_price=" + o.max : "")],
+  target: ["Target", q => "https://www.target.com/s?searchTerm=" + enc(q)],
+  bestbuy: ["Best Buy", q => "https://www.bestbuy.com/site/searchpage.jsp?st=" + enc(q)],
+  ebay: ["eBay", (q, o) => "https://www.ebay.com/sch/i.html?_nkw=" + enc(q) + (o.max ? "&_udhi=" + o.max : "") +
+    (o.cond === "new" ? "&LH_ItemCondition=1000" : o.cond === "used" ? "&LH_ItemCondition=3000" : "")],
+  web: ["Web search", q => "https://duckduckgo.com/?q=" + enc(q)]
+};
+const COND_IN_ADDRESS = new Set(["gshop", "ebay"]);  // other stores get the condition as a search word instead
+const searchWords = o => [o.anyBrand ? "" : o.brand, o.name, o.words].map(x => (x || "").trim()).filter(Boolean).join(" ");
+function storeUrl(key, o) {
+  let q = searchWords(o);
+  if (!COND_IN_ADDRESS.has(key) && (o.cond === "new" || o.cond === "used")) q += " " + o.cond;
+  return STORES[key][1](q, o);
+}
+function findBlock(item) {
+  return `<div class="find"><button type="button" class="small" data-act="find" aria-expanded="false">Find similar ↗</button>
+    <div class="find-box" id="findBox" hidden>
+      <div class="field"><label for="fs_brand">Brand</label><input id="fs_brand" value="${esc(item.brand)}" placeholder="e.g. KitchenAid"></div>
+      <label class="toggle" style="font-size:13px"><input type="checkbox" id="fs_any"> Any brand (show alternatives)</label>
+      <div class="field"><label for="fs_words">Model, size or color <span class="muted">(optional)</span></label><input id="fs_words" placeholder="e.g. 5 qt, red"></div>
+      <div class="two"><div class="field"><label for="fs_cond">Condition</label><select id="fs_cond"><option value="any">Any</option><option value="new">New</option><option value="used">Used</option></select></div>
+        <div class="field"><label for="fs_max">Max price ($)</label><input id="fs_max" type="number" min="0" step="1" placeholder="no limit"></div></div>
+      <div class="sub" id="fs_preview"></div>
+      <div class="stores">${Object.entries(STORES).map(([k, v]) => `<button type="button" class="small" data-store="${k}">${v[0]} ↗</button>`).join("")}</div>
+      <div class="sub">Price limits apply on Google Shopping, Amazon, Walmart and eBay. Use the other stores' own filters.</div>
+    </div></div>`;
+}
+function wireFind(pane, item) {
+  const btn = pane.querySelector('[data-act="find"]'); if (!btn) return;
+  const box = $("#findBox", pane);
+  const opts = () => {
+    const max = Math.ceil(Number($("#fs_max", pane).value) || 0);
+    return {name: item.name, brand: $("#fs_brand", pane).value, anyBrand: $("#fs_any", pane).checked,
+      words: $("#fs_words", pane).value, cond: $("#fs_cond", pane).value, max: max > 0 ? max : ""};
+  };
+  const preview = () => { $("#fs_preview", pane).innerHTML = "Searching for: <b>" + (esc(searchWords(opts())) || "—") + "</b>"; };
+  btn.onclick = () => {
+    box.hidden = !box.hidden; btn.setAttribute("aria-expanded", String(!box.hidden));
+    if (!box.hidden) { preview(); $("#fs_words", pane).focus(); }
+  };
+  box.addEventListener("input", preview); box.addEventListener("change", preview);
+  box.querySelectorAll("[data-store]").forEach(b => b.onclick = () =>
+    window.open(storeUrl(b.dataset.store, opts()), "_blank", "noopener,noreferrer"));
+}
+
+/* ---------- pasted product link: read the page for a price ---------- */
+const readLink = async url => { try { return await api("POST", "/link-info", {url}); } catch (e) { return {error: e.message}; } };
+const usdPrice = i => i && i.price != null && (!i.currency || i.currency === "USD");
+function linkBlock() {
+  return `<div class="field"><label for="pl_url">Product link</label>
+    <input id="pl_url" type="url" placeholder="Paste a product link to read its price" autocomplete="off"></div>
+    <div class="sub idmsg" id="pl_msg" role="status"></div>`;
+}
+function wireLink(pane, item) {
+  const inp = $("#pl_url", pane); if (!inp) return;
+  const msg = $("#pl_msg", pane);
+  let looked = "";  // the same link is never read twice, so clicking a result button can't wipe it
+  const run = async () => {
+    const url = inp.value.trim(); if (!url || url === looked) return;
+    if (!safeUrl(url)) { setStatus(msg, "That doesn't look like a web link. It must start with http:// or https://", "err"); return; }
+    looked = url; setStatus(msg, "Reading the page for a price…", "busy");
+    const info = await readLink(url);
+    const usd = usdPrice(info);
+    msg.className = "sub idmsg";
+    msg.innerHTML = (info.error ? `⚠ ${esc(info.error)}`
+      : usd ? `✔ Found <b>${money(info.price)}</b> on ${esc(info.host)}${info.title ? " · " + esc(info.title.slice(0, 70)) : ""}`
+      : info.price != null ? `Found ${esc(info.currency)} ${info.price} on ${esc(info.host)}. That isn't USD, so it won't be used automatically.`
+      : "No price was found on that page. You can still save the link.") +
+      `<div class="btns" style="margin-top:6px">${usd ? '<button type="button" class="small primary" data-use="both">Save link and set price</button>' : ""}
+        <button type="button" class="small" data-use="link">Save link only</button></div>`;
+    msg.querySelectorAll("[data-use]").forEach(b => b.onclick = async () => {
+      const body = {similar_url: url};
+      if (b.dataset.use === "both") body.replacement_value = info.price;
+      try { await api("PUT", "/items/" + item.id, body); toast(b.dataset.use === "both" ? "Link and price saved" : "Link saved"); route(); }
+      catch (e) { setStatus(msg, e.message, "err"); }
+    });
+  };
+  inp.addEventListener("paste", () => setTimeout(run, 0));
+  inp.addEventListener("change", run);
+}
+
 function paneHtml(item) {
   if (!item) return `<div class="panel-head"><h2>Item</h2></div><div class="pane-body">
     <div class="ph-empty">No item selected</div>
@@ -659,7 +801,8 @@ function paneHtml(item) {
       <div><h4>Equivalent item</h4>${sim}
         <div class="links" style="margin-top:6px">${url ? `<a href="${esc(url)}" target="_blank" rel="noopener noreferrer">${esc(hostOf(url))} ↗</a>` : '<span class="muted">No link yet</span>'}</div>
         <div class="btns" style="margin-top:6px"><button class="small" data-pick="similar">${item.similar_image ? "Replace image" : "Add image"}</button></div>
-        <div class="btns" style="margin-top:6px">${engineSelect("paneEngine")}<button class="small" data-act="find">Find similar ↗</button></div></div>
+        <div style="margin-top:8px">${findBlock(item)}</div>
+        <div style="margin-top:8px">${linkBlock()}</div></div>
       <dl><dt>Purchased</dt><dd>${money(item.purchased_value)}</dd>
         <dt>Replacement</dt><dd>${money(item.replacement_value)}</dd>
         <dt>Price updated</dt><dd>${item.price_updated_at ? esc(fmtDate(item.price_updated_at)) : "Never"}</dd></dl>
@@ -687,7 +830,7 @@ async function roomView(id) {
   const room = await api("GET", "/rooms/" + id);
   const [home, items] = await Promise.all([api("GET", "/homes/" + room.home_id), api("GET", `/rooms/${id}/items`)]);
   await buildNav(home.id, room.id);
-  chrome(room.name, "+ Add item", () => itemForm(room));
+  chrome(room.name, "Add item", () => itemForm(room), {label: "Add items by image", icon: "camera", onClick: () => batchForm(room)});
   if (sel.room !== id) { sel.room = id; sel.item = null; }
   if (!items.some(i => i.id === sel.item)) sel.item = null;
   app.innerHTML = `<div class="crumbs"><a href="#/">Homes</a> / <a href="#/home/${home.id}">${esc(home.name)}</a> / ${esc(room.name)}${room.description ? " · " + esc(room.description) : ""}</div>
@@ -703,7 +846,7 @@ async function roomView(id) {
         <td class="inv">${esc(i.inv_no)}</td>
         <td>${itemIcons(i)}</td>
         <td class="num">${money(i.purchased_value)}</td><td class="num">${money(i.replacement_value)}</td></tr>`).join("")}
-      </tbody><tfoot><tr><td colspan="4">Room total (${items.length} items)</td>
+      </tbody><tfoot><tr><td colspan="4">Room total (${items.length} item${items.length === 1 ? "" : "s"})</td>
         <td class="num">${money(room.total_purchased)}</td><td class="num">${money(room.total_replacement)}</td></tr></tfoot></table></div>
       <div class="legend"><span>${icon("photo", "yes", "Photo")} photo</span><span>${icon("link", "yes", "Link")} equivalent-item link</span>
         <span>${icon("price", "current", "Price")} price updated within a year</span><span>${icon("price", "stale", "Price")} older than a year</span>
@@ -715,8 +858,7 @@ async function roomView(id) {
     pane.innerHTML = paneHtml(item);
     pane.querySelectorAll("[data-pick]").forEach(b => b.onclick = () => pickImage(item.id, b.dataset.pick));
     const ed = pane.querySelector('[data-act="edit"]'); if (ed) ed.onclick = () => itemForm(room, item);
-    const fb = pane.querySelector('[data-act="find"]');
-    if (fb) fb.onclick = () => findSimilar([item.brand, item.name].filter(Boolean).join(" "), $("#paneEngine", pane));
+    wireFind(pane, item); wireLink(pane, item);
     const cf = pane.querySelector('[data-act="confirm"]');
     if (cf) cf.onclick = async () => { await api("PUT", "/items/" + item.id, {price_confirmed: true}); toast("Price marked current"); route(); };
     app.querySelectorAll("tbody tr[data-id]").forEach(tr => {
@@ -735,46 +877,73 @@ async function roomView(id) {
 async function itemForm(room, item) {
   const [rooms, cfg] = await Promise.all([api("GET", `/homes/${room.home_id}/rooms`), api("GET", "/settings")]);
   const imgs = {photo: null, similar: null};
-  let identified = false, modelQ = null;  // modelQ: the model's search words, used until name/brand are edited
-  const img = (kind, label, cur) => `<div class="field"><label for="f_img_${kind}">${label}</label>
-    <input id="f_img_${kind}" type="file" accept="image/*" data-kind="${kind}">
-    <img class="preview" data-prev="${kind}" ${cur ? `src="/images/${esc(cur)}"` : "hidden"} alt=""></div>`;
-  form(item ? `Edit ${item.inv_no}` : "Add item",
-    field("name", "Name", item?.name, "required") +
-    `<div class="two">${field("brand", "Brand", item?.brand)}${select("item_type", "Type", META.item_types.map(t => [t, t]), item?.item_type, "— choose —")}</div>` +
-    area("description", "Description", item?.description) +
-    `<div class="two">${field("purchased_value", "Purchased value ($)", item?.purchased_value ?? "", 'type="number" min="0" step="0.01"')}
-      ${field("replacement_value", "Replacement value ($)", item?.replacement_value ?? "", 'type="number" min="0" step="0.01" placeholder="defaults to purchased"')}</div>` +
-    field("similar_url", "Link to a similar item", item?.similar_url, 'type="url" placeholder="https://"') +
-    `<div class="field"><div class="btns">${engineSelect("formEngine")}<button type="button" class="small" id="findBtn">Find similar ↗</button></div>
-       <div class="sub">Opens a web search in a new tab. Copy the address of a result you like and paste it into the link above.</div></div>` +
-    img("photo", "Photo", item?.image) +
-    `<div class="field" id="idBlock"><div class="btns">
-       <button type="button" class="small" id="idLocal">Identify with ${esc(cfg.ollama.model)}</button>
-       ${cfg.anthropic.configured ? '<button type="button" class="small" id="idCloud">Identify with Claude…</button>'
-         : '<span class="sub">Want Claude instead? <a href="#/settings">Add your key in Settings</a></span>'}</div>
-       ${item ? "" : '<label class="toggle" style="font-size:13px"><input type="checkbox" id="idAuto"> Identify automatically when I choose a photo (local model only)</label>'}
-       <div class="sub idmsg" id="idMsg" role="status">Choose a photo, then click Identify (or tick the box above to do it automatically). You review before saving.</div>
-       </div>` +
-    img("similar", "Image of similar item", item?.similar_image) +
-    (item ? select("room_id", "Room", rooms.map(r => [r.id, r.name]), item.room_id) : ""),
-    async f => {
-      const b = {name: val(f, "name"), brand: val(f, "brand"), item_type: val(f, "item_type"),
-        description: val(f, "description"), similar_url: val(f, "similar_url"),
-        purchased_value: val(f, "purchased_value"), replacement_value: val(f, "replacement_value")};
-      if (item) b.room_id = +val(f, "room_id"); else if (identified) b.source = "vision";
-      const saved = item ? await api("PUT", "/items/" + item.id, b) : await api("POST", `/rooms/${room.id}/items`, b);
-      for (const k of ["photo", "similar"])
-        if (imgs[k]) await api("POST", `/items/${saved.id}/image?kind=${k}`, {data: imgs[k]});
-      sel.item = saved.id; toast("Item saved"); route();
-    });
-  const d = $("#editor");
-  d.querySelectorAll("input[type=file]").forEach(inp => inp.onchange = async () => {
-    const f = inp.files[0]; if (!f) return;
-    const url = await readFile(f); imgs[inp.dataset.kind] = url;
-    const p = $(`[data-prev=${inp.dataset.kind}]`, d); p.src = url; p.hidden = false;
-    const auto = $("#idAuto", d);
-    if (inp.dataset.kind === "photo" && auto && auto.checked) runId("ollama");
+  let identified = false;
+  const have = item && item.image ? "/images/" + item.image : "";
+  const model = cfg.ollama.model;
+  const html = `<div class="item-layout">
+    <div class="photo-col">
+      <label class="drop" id="drop" for="f_img_photo" ${have ? "hidden" : ""}>${ICONS.camera}<b>Add a photo</b>
+        <span>Drop one here or click. The model fills in the details.</span></label>
+      <div class="photo-box" id="photoBox" ${have ? "" : "hidden"}>
+        <img class="preview-lg" data-prev="photo" alt="Item photo" ${have ? `src="${esc(have)}"` : ""}>
+        <div class="photo-busy" role="status"><span class="spin lg" aria-hidden="true"></span><span id="busyText">LLM working…</span></div>
+      </div>
+      <input id="f_img_photo" class="sr-only" type="file" accept="image/*" data-kind="photo">
+      <div class="btns">
+        <label class="btn-like" for="f_img_photo" id="changePhoto" ${have ? "" : "hidden"}>Change photo</label>
+        <button type="button" class="small" id="idLocal">Identify with ${esc(model)}</button>
+        ${cfg.anthropic.configured ? '<button type="button" class="small" id="idCloud">Identify with Claude…</button>'
+          : '<span class="sub">Want Claude? <a href="#/settings">Add a key in Settings</a></span>'}
+      </div>
+      ${item ? "" : '<label class="toggle" style="font-size:13px"><input type="checkbox" id="idAuto"> Identify automatically (local model)</label>'}
+      <div class="sub idmsg" id="idMsg" role="status">Add a photo and the model fills in the fields. You review before saving.</div>
+      <details class="more"><summary>Equivalent item image (optional)</summary>
+        <input id="f_img_similar" type="file" accept="image/*" data-kind="similar">
+        <img class="preview" data-prev="similar" ${item?.similar_image ? `src="/images/${esc(item.similar_image)}"` : "hidden"} alt=""></details>
+    </div>
+    <div class="item-grid">
+      <div class="s2">${field("name", "Name", item?.name, "required")}</div>
+      ${field("brand", "Brand", item?.brand)}
+      ${select("item_type", "Type", META.item_types.map(t => [t, t]), item?.item_type, "— choose —")}
+      <div class="s4">${area("description", "Description", item?.description)}</div>
+      ${field("purchased_value", "Purchased ($)", item?.purchased_value ?? "", 'type="number" min="0" step="0.01"')}
+      ${field("replacement_value", "Replacement ($)", item?.replacement_value ?? "", 'type="number" min="0" step="0.01" placeholder="= purchased"')}
+      <div class="s2">${field("similar_url", "Link to a similar item", item?.similar_url, 'type="url" placeholder="Paste a product link to read its price"')}
+        <div class="sub idmsg" id="linkMsg" role="status"></div></div>
+      ${item ? `<div class="s2">${select("room_id", "Room", rooms.map(r => [r.id, r.name]), item.room_id)}</div>` : ""}
+    </div></div>`;
+  const d = form(item ? `Edit ${item.inv_no}` : "Add item", html, async f => {
+    const b = {name: val(f, "name"), brand: val(f, "brand"), item_type: val(f, "item_type"),
+      description: val(f, "description"), similar_url: val(f, "similar_url"),
+      purchased_value: val(f, "purchased_value"), replacement_value: val(f, "replacement_value")};
+    if (item) b.room_id = +val(f, "room_id"); else if (identified) b.source = "vision";
+    const saved = item ? await api("PUT", "/items/" + item.id, b) : await api("POST", `/rooms/${room.id}/items`, b);
+    for (const k of ["photo", "similar"])
+      if (imgs[k]) await api("POST", `/items/${saved.id}/image?kind=${k}`, {data: imgs[k]});
+    sel.item = saved.id; toast("Item saved"); route();
+  }, {wide: true});
+
+  /* photo: choose or drop; the model runs automatically on a new item */
+  const photoInp = d.querySelector('input[data-kind="photo"]'), drop = $("#drop", d), box = $("#photoBox", d);
+  const showPhoto = url => { $('[data-prev="photo"]', d).src = url; box.hidden = false; drop.hidden = true; $("#changePhoto", d).hidden = false; };
+  photoInp.onchange = async () => {
+    const f = photoInp.files[0]; if (!f) return;
+    const url = await readFile(f); imgs.photo = url; showPhoto(url);
+    const auto = $("#idAuto", d); if (auto && auto.checked) runId("ollama");
+  };
+  const similarInp = d.querySelector('input[data-kind="similar"]');
+  similarInp.onchange = async () => {
+    const f = similarInp.files[0]; if (!f) return;
+    const url = await readFile(f); imgs.similar = url;
+    const p = $('[data-prev="similar"]', d); p.src = url; p.hidden = false;
+  };
+  const col = $(".photo-col", d);
+  ["dragenter", "dragover"].forEach(ev => col.addEventListener(ev, e => { e.preventDefault(); drop.classList.add("over"); }));
+  col.addEventListener("dragleave", () => drop.classList.remove("over"));
+  col.addEventListener("drop", e => {
+    e.preventDefault(); drop.classList.remove("over");
+    const f = e.dataTransfer.files[0]; if (!f || !f.type.startsWith("image/")) return;
+    const dt = new DataTransfer(); dt.items.add(f); photoInp.files = dt.files; photoInp.dispatchEvent(new Event("change"));
   });
   const autoBox = $("#idAuto", d);
   if (autoBox) {
@@ -784,40 +953,58 @@ async function itemForm(room, item) {
   }
   const photoData = async () => {
     if (imgs.photo) return imgs.photo;
-    const chosen = d.querySelector('input[data-kind="photo"]').files[0];
-    if (chosen) return readFile(chosen);  // chosen but still being read
+    if (photoInp.files[0]) return readFile(photoInp.files[0]);  // chosen but still being read
     if (item?.image) return readFile(await (await fetch("/images/" + item.image)).blob());
     return null;
   };
-  const setMsg = (t, kind) => {
-    const m = $("#idMsg", d);
-    m.textContent = (kind === "err" ? "⚠ " : kind === "ok" ? "✔ " : "") + t; m.className = "sub idmsg " + (kind || "");
-  };
+  const msgEl = $("#idMsg", d);
   async function runId(provider) {
-    const btns = d.querySelectorAll("#idBlock button");
+    const btns = d.querySelectorAll(".photo-col .btns button");
     const photo = await photoData();
-    if (!photo) { setMsg("Choose a photo first.", "err"); return; }
+    if (!photo) { setStatus(msgEl, "Add a photo first.", "err"); return; }
     if (provider === "anthropic" && !confirm("This sends the photo to Anthropic's Claude API using your own API key. Continue?")) return;
     btns.forEach(x => x.disabled = true);
-    setMsg(provider === "ollama" ? "Identifying with the local model… this can take up to a minute." : "Asking Claude…", "busy");
+    $("#busyText", d).textContent = provider === "ollama" ? `LLM working… (${model})` : "Claude working…";
+    box.classList.add("busy"); box.setAttribute("aria-busy", "true");
+    setStatus(msgEl, provider === "ollama" ? "The local model is reading the photo. This can take up to a minute." : "Asking Claude…", "busy");
     try {
       const r = await api("POST", "/identify", {data: await downscale(photo), provider});
       const set = (n, v) => { if (v) d.querySelector("#f_" + n).value = v; };
       set("name", r.name); set("brand", r.brand); set("item_type", r.item_type); set("description", r.description);
       identified = true;
-      setMsg(`Filled in by ${r.model}. Check it before saving.`, "ok");
-      modelQ = r.search_query ? {name: r.name, brand: r.brand, q: r.search_query} : null;
-    } catch (err) { setMsg(err.message, "err"); }
-    finally { btns.forEach(x => x.disabled = false); }
+      setStatus(msgEl, `Filled in by ${r.model}. Check it before saving.`, "ok");
+    } catch (err) { setStatus(msgEl, err.message, "err"); }
+    finally { btns.forEach(x => x.disabled = false); box.classList.remove("busy"); box.removeAttribute("aria-busy"); }
   }
-  $("#findBtn", d).onclick = () => {
-    const name = d.querySelector("#f_name").value.trim(), brand = d.querySelector("#f_brand").value.trim();
-    const q = modelQ && modelQ.name === name && modelQ.brand === brand ? modelQ.q : [brand, name].filter(Boolean).join(" ");
-    if (!q) { toast("Enter a name or brand first"); return; }
-    findSimilar(q, $("#formEngine", d));
-  };
   $("#idLocal", d).onclick = () => runId("ollama");
   const cl = $("#idCloud", d); if (cl) cl.onclick = () => runId("anthropic");
+
+  /* a pasted link: read the page's price and offer it as the replacement price */
+  const linkInp = d.querySelector("#f_similar_url"), repl = d.querySelector("#f_replacement_value"), linkMsg = $("#linkMsg", d);
+  let looked = "";
+  async function lookupLink() {
+    const u = linkInp.value.trim();
+    if (!u || u === looked) return;
+    if (!safeUrl(u)) { setStatus(linkMsg, "That doesn't look like a web link. It must start with http:// or https://", "err"); return; }
+    looked = u; setStatus(linkMsg, "Reading the page for a price…", "busy");
+    const info = await readLink(u);
+    if (info.error) { setStatus(linkMsg, info.error, "err"); return; }
+    if (!usdPrice(info)) {
+      setStatus(linkMsg, info.price != null ? `Found ${info.currency} ${info.price}, which isn't USD, so it wasn't used.`
+        : "No price was found on that page. Enter it by hand."); return;
+    }
+    if (!repl.value.trim()) {
+      repl.value = info.price.toFixed(2);
+      setStatus(linkMsg, `Replacement price filled in from ${info.host}: ${money(info.price)}. Check it.`, "ok");
+    } else {
+      linkMsg.className = "sub idmsg";
+      linkMsg.innerHTML = `Found ${money(info.price)} on ${esc(info.host)}. <button type="button" class="small" id="useLinkPrice">Use as replacement price</button>`;
+      $("#useLinkPrice", d).onclick = () => { repl.value = info.price.toFixed(2); setStatus(linkMsg, "Replacement price updated.", "ok"); };
+    }
+  }
+  linkInp.addEventListener("paste", () => setTimeout(lookupLink, 0));
+  linkInp.addEventListener("change", lookupLink);
+
   if (item) {
     const del = document.createElement("button");
     del.type = "button"; del.className = "danger"; del.textContent = "Delete";
@@ -825,6 +1012,169 @@ async function itemForm(room, item) {
       await api("DELETE", "/items/" + item.id); closeEditors(); sel.item = null; toast("Item deleted"); route(); };
     $(".form-actions", d).prepend(del);
   }
+}
+
+/* ---------- Add items by image: many photos and receipts, reviewed before anything is saved ---------- */
+async function batchForm(room) {
+  const cfg = await api("GET", "/settings");
+  closeEditors();
+  const panel = document.createElement("section");
+  panel.className = "panel editor wide"; panel.id = "editor";
+  panel.innerHTML = `<div class="panel-head"><h2>Add items by image</h2><span class="sub">Photos of items, or receipts. Nothing is saved until you review it.</span></div>
+    <div class="ins-body">
+      <div class="batch-pick">
+        <label class="drop" id="bdrop" for="bFiles">${ICONS.camera}<b>Choose images</b><span>Drop up to 20 photos or receipts here, or click.</span></label>
+        <input id="bFiles" class="sr-only" type="file" accept="image/*" multiple>
+        <div class="batch-opts">
+          <div class="field"><label for="bMode">These images are</label>
+            <select id="bMode"><option value="auto">Mixed: detect each one</option><option value="item">All item photos</option><option value="receipt">All receipts</option></select></div>
+          ${cfg.anthropic.configured ? '<label class="toggle" style="font-size:13px"><input type="checkbox" id="bCloud"> Use Claude instead of the local model (sends the images to Anthropic)</label>' : ""}
+          <div class="btns"><button class="primary" type="button" id="bStart" disabled>Read images</button>
+            <button type="button" id="bStop" hidden>Stop</button><button type="button" id="bClose">Close</button></div>
+          <div class="sub idmsg" id="bNote" role="status">Receipts are best photographed flat, well lit and filling the frame.</div>
+        </div>
+      </div>
+      <div class="bq" id="bQueue"></div>
+      <div id="bReview" hidden></div>
+    </div>`;
+  app.prepend(panel);
+  panel.onkeydown = e => { if (e.key === "Escape" && !running) panel.remove(); };
+  const MAX_FILES = 20, itemTypes = META.item_types;
+  let entries = [], cands = [], receipts = {}, nextId = 1, running = false, stop = false;
+
+  const note = (t, k) => setStatus($("#bNote", panel), t, k);
+  const startBtn = $("#bStart", panel);
+  const addFiles = files => {
+    const imgsOnly = [...files].filter(f => f.type.startsWith("image/"));
+    const room_ = MAX_FILES - entries.length;
+    imgsOnly.slice(0, room_).forEach(f => entries.push({id: nextId++, file: f, status: "Waiting", state: "wait", kind: null, dataUrl: null, thumb: ""}));
+    note(imgsOnly.length > room_ ? `Only ${MAX_FILES} images at a time. The extra ones were skipped.`
+      : files.length !== imgsOnly.length ? "Some files were skipped because they are not images." : `${entries.length} image${entries.length === 1 ? "" : "s"} ready.`,
+      imgsOnly.length > room_ ? "err" : "");
+    startBtn.disabled = !entries.some(e => e.state === "wait") || running;
+    drawQueue();
+    entries.filter(e => !e.thumb).forEach(async e => { try { e.thumb = await downscale(await readFile(e.file), 120); drawQueue(); } catch (x) {} });
+  };
+  $("#bFiles", panel).onchange = e => { addFiles(e.target.files); e.target.value = ""; };
+  const dz = $(".batch-pick", panel);
+  ["dragenter", "dragover"].forEach(ev => dz.addEventListener(ev, e => { e.preventDefault(); $("#bdrop", panel).classList.add("over"); }));
+  dz.addEventListener("dragleave", () => $("#bdrop", panel).classList.remove("over"));
+  dz.addEventListener("drop", e => { e.preventDefault(); $("#bdrop", panel).classList.remove("over"); addFiles(e.dataTransfer.files); });
+  $("#bClose", panel).onclick = () => { if (!running || confirm("Stop reading and close?")) { stop = true; panel.remove(); } };
+  $("#bStop", panel).onclick = () => { stop = true; note("Stopping after the current image…"); };
+
+  function drawQueue() {
+    $("#bQueue", panel).innerHTML = entries.map(e => `<div class="bq-item" data-id="${e.id}">
+      ${e.thumb ? `<img class="thumb" src="${esc(e.thumb)}" alt="">` : '<div class="thumb"></div>'}
+      <div class="bq-main"><b>${esc(e.file.name)}</b>
+        <div class="sub ${e.state === "err" ? "err-text" : ""}">${e.state === "busy" ? '<span class="spin" aria-hidden="true"></span> ' : e.state === "err" ? "⚠ " : e.state === "done" ? "✔ " : ""}${esc(e.status)}</div></div>
+      <div class="btns">${e.state === "done" || e.state === "err" ? `<button type="button" class="small" data-redo="${e.id}:${e.kind === "receipt" ? "item" : "receipt"}">${e.kind === "receipt" ? "Read as item" : "Read as receipt"}</button>` : ""}
+        ${e.state === "wait" ? `<button type="button" class="small" data-drop="${e.id}" aria-label="Remove ${esc(e.file.name)}">✕</button>` : ""}</div></div>`).join("");
+    $("#bQueue", panel).querySelectorAll("[data-drop]").forEach(b => b.onclick = () => {
+      entries = entries.filter(x => x.id !== +b.dataset.drop); startBtn.disabled = !entries.some(e => e.state === "wait"); drawQueue();
+    });
+    $("#bQueue", panel).querySelectorAll("[data-redo]").forEach(b => b.onclick = async () => {
+      if (running) { note("Wait for the current run to finish.", "err"); return; }
+      const [id, kind] = b.dataset.redo.split(":"), e = entries.find(x => x.id === +id);
+      cands = cands.filter(c => c.entry !== e.id); delete receipts[e.id];
+      e.state = "wait"; e.status = "Waiting"; e.forced = kind; await run([e]);
+    });
+  }
+
+  const cloudOn = () => !!($("#bCloud", panel) && $("#bCloud", panel).checked);
+  async function process(e) {
+    const provider = cloudOn() ? "anthropic" : "ollama";
+    const set = (s, st) => { e.status = s; e.state = st || e.state; drawQueue(); };
+    try {
+      set("Preparing…", "busy");
+      const url = await readFile(e.file);
+      let kind = e.forced || $("#bMode", panel).value;
+      if (kind === "auto") {
+        set("LLM working: is this a receipt or an item?");
+        kind = (await api("POST", "/classify", {data: await downscale(url, 768), provider})).kind;
+      }
+      e.kind = kind;
+      if (kind === "receipt") {
+        set("LLM working: reading the receipt…");
+        const r = await api("POST", "/receipt", {data: await downscale(url, 1800), provider});
+        receipts[e.id] = r;
+        r.items.forEach(it => cands.push({entry: e.id, kind: "receipt", name: it.description, brand: "", item_type: itemTypes.includes(it.category) ? it.category : "",
+          qty: it.quantity, price: it.unit_price ?? "", description: `From receipt: ${[r.store, r.date].filter(Boolean).join(" · ")}`,
+          checked: itemTypes.includes(it.category), photo: null, thumb: ""}));
+        set(`Receipt${r.store ? " from " + r.store : ""}: ${r.items.length} line${r.items.length === 1 ? "" : "s"} found`, "done");
+      } else if (kind === "item") {
+        set("LLM working: identifying the item…");
+        const r = await api("POST", "/identify", {data: await downscale(url, 1024), provider});
+        cands.push({entry: e.id, kind: "item", name: r.name, brand: r.brand, item_type: r.item_type || "", qty: 1, price: "",
+          description: r.description, checked: true, photo: url, thumb: e.thumb});
+        set(`Item: ${r.name}`, "done");
+      } else set("Skipped: not an item or a receipt", "done");
+    } catch (err) { set(err.message, "err"); }
+  }
+  async function run(list) {
+    running = true; stop = false; startBtn.disabled = true; $("#bStop", panel).hidden = false;
+    const pool = cloudOn() ? 3 : 1, queue = list.filter(e => e.state === "wait");
+    const worker = async () => { while (queue.length && !stop) await process(queue.shift()); };
+    await Promise.all(Array.from({length: pool}, worker));
+    running = false; $("#bStop", panel).hidden = true;
+    startBtn.disabled = !entries.some(e => e.state === "wait");
+    note(stop ? "Stopped. Unread images are still listed." : `Done. ${cands.length} possible item${cands.length === 1 ? "" : "s"} found. Review them below.`, stop ? "" : "ok");
+    drawReview();
+  }
+  startBtn.onclick = () => {
+    if (cloudOn() && !confirm(`This sends ${entries.filter(e => e.state === "wait").length} image(s) to Anthropic's Claude API using your own API key. Receipts can show card digits and addresses. Continue?`)) return;
+    run(entries);
+  };
+
+  function drawReview() {
+    const box = $("#bReview", panel); box.hidden = !cands.length; if (!cands.length) return;
+    const groups = [];
+    for (const e of entries) {
+      const rows = cands.map((c, i) => [c, i]).filter(([c]) => c.entry === e.id);
+      if (rows.length) groups.push({e, rows, r: receipts[e.id]});
+    }
+    box.innerHTML = `<h3 class="subhead" style="margin:4px 0 8px">Review</h3><div class="table-wrap"><table class="rv"><thead><tr><th></th><th>Name</th><th>Brand</th><th>Type</th><th class="num">Qty</th><th class="num">Price ($)</th></tr></thead><tbody>` +
+      groups.map(g => (g.r ? `<tr class="rv-head"><td colspan="6"><b>Receipt${g.r.store ? " · " + esc(g.r.store) : ""}${g.r.date ? " · " + esc(g.r.date) : ""}</b>${g.r.total ? " · total " + money(g.r.total) : ""}
+          ${g.r.warnings.map(w => `<div class="sub err-text">⚠ ${esc(w)}</div>`).join("")}
+          <div class="sub">Lines that look like food or supplies are unticked. Tick any you want to keep.</div></td></tr>` : "") +
+        g.rows.map(([c, i]) => `<tr data-i="${i}"><td><input type="checkbox" data-f="checked" ${c.checked ? "checked" : ""} aria-label="Include ${esc(c.name)}"></td>
+          <td>${c.thumb ? `<img class="thumb sm" src="${esc(c.thumb)}" alt="">` : ""}<input data-f="name" value="${esc(c.name)}" aria-label="Name"></td>
+          <td><input data-f="brand" value="${esc(c.brand)}" aria-label="Brand"></td>
+          <td><select data-f="item_type" aria-label="Type"><option value="">—</option>${itemTypes.map(t => `<option ${t === c.item_type ? "selected" : ""}>${t}</option>`).join("")}</select></td>
+          <td class="num"><input data-f="qty" type="number" min="1" max="25" value="${esc(c.qty)}" aria-label="Quantity"></td>
+          <td class="num"><input data-f="price" type="number" min="0" step="0.01" value="${esc(c.price)}" aria-label="Price"></td></tr>`).join("")).join("") +
+      `</tbody></table></div><div class="btns" style="margin-top:10px"><button class="primary" type="button" id="bSave"></button>
+        <span class="sub idmsg" id="bSaveMsg" role="status"></span></div>`;
+    const count = () => cands.filter(c => c.checked && !c.saved).reduce((n, c) => n + Math.min(25, Math.max(1, +c.qty || 1)), 0);
+    const refresh = () => { const n = count(); const b = $("#bSave", panel); b.textContent = n ? `Add ${n} item${n === 1 ? "" : "s"} to ${room.name}` : "Nothing selected"; b.disabled = !n; };
+    box.querySelectorAll("tr[data-i]").forEach(tr => {
+      const c = cands[+tr.dataset.i];
+      tr.addEventListener("input", ev => { const f = ev.target.dataset.f; if (!f) return; c[f] = f === "checked" ? ev.target.checked : ev.target.value; refresh(); });
+      tr.addEventListener("change", ev => { const f = ev.target.dataset.f; if (f === "checked") { c.checked = ev.target.checked; refresh(); } });
+    });
+    refresh();
+    $("#bSave", panel).onclick = async () => {
+      const msg = $("#bSaveMsg", panel), btn = $("#bSave", panel);
+      const picks = cands.filter(c => c.checked && !c.saved);
+      if (picks.some(c => !String(c.name).trim())) { setStatus(msg, "Every ticked line needs a name.", "err"); return; }
+      btn.disabled = true; let made = 0;
+      try {
+        for (const c of picks) {
+          const qty = Math.min(25, Math.max(1, +c.qty || 1));
+          for (let k = 0; k < qty; k++) {
+            setStatus(msg, `Saving ${made + 1}…`, "busy");
+            const it = await api("POST", `/rooms/${room.id}/items`, {name: c.name.trim(), brand: (c.brand || "").trim(), item_type: c.item_type,
+              description: c.description || "", purchased_value: c.price === "" ? "" : c.price, source: "vision"});
+            if (c.photo && k === 0) await api("POST", `/items/${it.id}/image?kind=photo`, {data: await downscale(c.photo, 1600)});
+            made++;
+          }
+          c.saved = true;
+        }
+        sel.item = null; toast(`Added ${made} item${made === 1 ? "" : "s"}`); route();
+      } catch (err) { setStatus(msg, `${err.message} (${made} saved so far; fix this and try again.)`, "err"); refresh(); }
+    };
+  }
+  panel.scrollIntoView({block: "nearest"});
 }
 
 /* ---------- router ---------- */
