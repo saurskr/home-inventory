@@ -37,6 +37,7 @@ th{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--mute
 .editor .form-fields{max-width:640px;display:flex;flex-direction:column;gap:10px}
 .form-actions{margin-top:4px}
 .editor a{color:var(--accent)}
+.idmsg.err{color:var(--red);font-weight:600}
 .toast{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);background:var(--head);color:var(--head-text);
   padding:8px 16px;border-radius:999px;opacity:0;transition:opacity .2s;pointer-events:none;z-index:60}
 .toast.show{opacity:1}
@@ -615,7 +616,7 @@ const downscale = (url, max = 1024) => new Promise((ok, no) => {
     c.width = Math.round(im.width * k); c.height = Math.round(im.height * k);
     c.getContext("2d").drawImage(im, 0, 0, c.width, c.height); ok(c.toDataURL("image/jpeg", 0.85));
   };
-  im.onerror = () => no(new Error("Could not read that image"));
+  im.onerror = () => no(new Error("This browser can't read that image. iPhone HEIC photos need converting to JPEG or PNG first."));
   im.src = url;
 });
 
@@ -730,7 +731,8 @@ async function itemForm(room, item) {
        <button type="button" class="small" id="idLocal">Identify with ${esc(cfg.ollama.model)}</button>
        ${cfg.anthropic.configured ? '<button type="button" class="small" id="idCloud">Identify with Claude…</button>'
          : '<span class="sub">Want Claude instead? <a href="#/settings">Add your key in Settings</a></span>'}</div>
-       <div class="sub" id="idMsg" role="status">Choose a photo, then let a model fill in the name, brand and type. You review before saving.</div>
+       ${item ? "" : '<label class="toggle" style="font-size:13px"><input type="checkbox" id="idAuto"> Identify automatically when I choose a photo (local model only)</label>'}
+       <div class="sub idmsg" id="idMsg" role="status">Choose a photo, then click Identify (or tick the box above to do it automatically). You review before saving.</div>
        <a id="idSearch" class="sub" target="_blank" rel="noopener noreferrer" hidden>Search for an equivalent item ↗</a></div>` +
     img("similar", "Image of similar item", item?.similar_image) +
     (item ? select("room_id", "Room", rooms.map(r => [r.id, r.name]), item.room_id) : ""),
@@ -749,7 +751,15 @@ async function itemForm(room, item) {
     const f = inp.files[0]; if (!f) return;
     const url = await readFile(f); imgs[inp.dataset.kind] = url;
     const p = $(`[data-prev=${inp.dataset.kind}]`, d); p.src = url; p.hidden = false;
+    const auto = $("#idAuto", d);
+    if (inp.dataset.kind === "photo" && auto && auto.checked) runId("ollama");
   });
+  const autoBox = $("#idAuto", d);
+  if (autoBox) {
+    let v = "1"; try { v = localStorage.getItem("autoId") ?? "1"; } catch (e) {}
+    autoBox.checked = v === "1";
+    autoBox.onchange = () => { try { localStorage.setItem("autoId", autoBox.checked ? "1" : "0"); } catch (e) {} };
+  }
   const photoData = async () => {
     if (imgs.photo) return imgs.photo;
     const chosen = d.querySelector('input[data-kind="photo"]').files[0];
@@ -757,22 +767,26 @@ async function itemForm(room, item) {
     if (item?.image) return readFile(await (await fetch("/images/" + item.image)).blob());
     return null;
   };
+  const setMsg = (t, kind) => {
+    const m = $("#idMsg", d);
+    m.textContent = (kind === "err" ? "⚠ " : kind === "ok" ? "✔ " : "") + t; m.className = "sub idmsg " + (kind || "");
+  };
   async function runId(provider) {
-    const msg = $("#idMsg", d), btns = d.querySelectorAll("#idBlock button");
+    const btns = d.querySelectorAll("#idBlock button");
     const photo = await photoData();
-    if (!photo) { msg.textContent = "Choose a photo first."; return; }
+    if (!photo) { setMsg("Choose a photo first.", "err"); return; }
     if (provider === "anthropic" && !confirm("This sends the photo to Anthropic's Claude API using your own API key. Continue?")) return;
     btns.forEach(x => x.disabled = true);
-    msg.textContent = provider === "ollama" ? "Identifying with the local model… this can take up to a minute." : "Asking Claude…";
+    setMsg(provider === "ollama" ? "Identifying with the local model… this can take up to a minute." : "Asking Claude…", "busy");
     try {
       const r = await api("POST", "/identify", {data: await downscale(photo), provider});
       const set = (n, v) => { if (v) d.querySelector("#f_" + n).value = v; };
       set("name", r.name); set("brand", r.brand); set("item_type", r.item_type); set("description", r.description);
       identified = true;
-      msg.textContent = `Filled in by ${r.model}. Check it before saving.`;
+      setMsg(`Filled in by ${r.model}. Check it before saving.`, "ok");
       const a = $("#idSearch", d);
       if (r.search_query) { a.href = "https://duckduckgo.com/?q=" + encodeURIComponent(r.search_query); a.hidden = false; }
-    } catch (err) { msg.textContent = err.message; }
+    } catch (err) { setMsg(err.message, "err"); }
     finally { btns.forEach(x => x.disabled = false); }
   }
   $("#idLocal", d).onclick = () => runId("ollama");
