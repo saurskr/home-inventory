@@ -9,13 +9,17 @@ The server fetches a URL it was handed, so this module is deliberately defensive
    cloud-metadata addresses), checked again for each redirect, and the connection goes to
    the address that was checked (no DNS-rebinding window)
  - at most 3 redirects, 10 s timeout, 1.5 MB read, HTML only
-Prices come from structured data the site publishes (JSON-LD, Open Graph / product meta tags,
-itemprop="price"). It never guesses from page text, so it may find nothing.
+Prices come from structured data the site publishes: JSON-LD, Open Graph / product meta tags,
+itemprop="price", and the page's embedded product data (for example Next.js __NEXT_DATA__), where the
+price is only taken from the product whose id appears in the link. It never guesses from page text,
+so it may find nothing. Sites that show a "robot check" instead of the page are detected and reported
+as such. Diagnose a link with: python3 tools/check_link.py <url>
 """
 import html.parser
 import http.client
 import ipaddress
 import json
+import os
 import re
 import socket
 import ssl
@@ -23,9 +27,17 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-MAX_BYTES = 1_500_000
+MAX_BYTES = 3_000_000
 TIMEOUT = 10
-USER_AGENT = "Mozilla/5.0 (compatible; HomeInventory/1.0; personal price lookup)"
+# A plain desktop-browser identity: many shops refuse requests that announce themselves as scripts.
+# Override with the INVENTORY_FETCH_UA environment variable.
+USER_AGENT = os.environ.get("INVENTORY_FETCH_UA") or (
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/124.0.0.0 Safari/537.36")
+BLOCKED_STATUS = (401, 403, 412, 418, 429, 503)
+ROBOT_MARKERS = ("px-captcha", "robot or human", "press & hold", "press &amp; hold", "are you a human",
+                 "pardon our interruption", "captcha-delivery.com", "incapsula incident", "access denied",
+                 "unusual traffic from your computer", "verify you are human", "/_incapsula_resource")
 
 
 class LinkError(Exception):
@@ -91,29 +103,26 @@ def _make_opener(allow_private):
     return op
 
 
-def fetch_page(url, allow_private=False):
+def fetch_raw(url, allow_private=False):
+    """(status, final_url, content_type, body_text). HTTP error pages are returned, not raised."""
     if not re.match(r"^https?://[^\s/]+", url or "", re.I):
         raise LinkError("Paste a full link starting with http:// or https://", 400)
     req = urllib.request.Request(url, headers={
-        "User-Agent": USER_AGENT, "Accept": "text/html,application/xhtml+xml",
-        "Accept-Language": "en-US,en;q=0.9", "Accept-Encoding": "identity"})
+        "User-Agent": USER_AGENT, "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9", "Accept-Encoding": "identity", "Upgrade-Insecure-Requests": "1"})
     try:
-        with _make_opener(allow_private).open(req, timeout=TIMEOUT) as r:
+        try:
+            r = _make_opener(allow_private).open(req, timeout=TIMEOUT)
+            status = r.status
+        except urllib.error.HTTPError as e:      # the body of an error page is still worth reading
+            r, status = e, e.code
+        with r:
             ctype = (r.headers.get("Content-Type") or "").split(";")[0].strip().lower()
-            if ctype not in ("text/html", "application/xhtml+xml", ""):
-                raise LinkError("That link is not a web page.", 400)
             body = r.read(MAX_BYTES)
             charset = r.headers.get_content_charset() or "utf-8"
-            final = r.geturl()
+            final = r.geturl() if hasattr(r, "geturl") else url
     except LinkError:
         raise
-    except urllib.error.HTTPError as e:
-        if e.code in (401, 403, 429, 503):
-            raise LinkError("That site did not allow the page to be read automatically. "
-                            "Enter the price by hand.")
-        if e.code in (404, 410):
-            raise LinkError("That page was not found. Check the link.", 400)
-        raise LinkError("The site returned an error (HTTP %s)." % e.code)
     except (socket.timeout, TimeoutError):
         raise LinkError("The site took too long to answer.")
     except (urllib.error.URLError, OSError, ValueError) as e:
@@ -121,9 +130,34 @@ def fetch_page(url, allow_private=False):
             raise e.reason
         raise LinkError("Could not open that link.")
     try:
-        return final, body.decode(charset, "replace")
+        text = body.decode(charset, "replace")
     except LookupError:
-        return final, body.decode("utf-8", "replace")
+        text = body.decode("utf-8", "replace")
+    return status, final, ctype, text
+
+
+def looks_like_robot_check(doc):
+    low = doc[:200_000].lower()
+    return any(m in low for m in ROBOT_MARKERS)
+
+
+BLOCKED_MESSAGE = ("That site showed a robot check instead of the product page, so the price could not be read. "
+                   "Enter the price by hand.")
+
+
+def fetch_page(url, allow_private=False):
+    """(final_url, html) for a normal page; raises LinkError with a plain-language reason otherwise."""
+    status, final, ctype, doc = fetch_raw(url, allow_private)
+    if status in (404, 410):
+        raise LinkError("That page was not found. Check the link.", 400)
+    if status in BLOCKED_STATUS:
+        raise LinkError(BLOCKED_MESSAGE if looks_like_robot_check(doc) else
+                        "That site did not allow the page to be read automatically. Enter the price by hand.")
+    if status >= 400:
+        raise LinkError("The site returned an error (HTTP %s)." % status)
+    if ctype not in ("text/html", "application/xhtml+xml", ""):
+        raise LinkError("That link is not a web page.", 400)
+    return final, doc
 
 
 # ---------- price extraction ----------
@@ -152,14 +186,18 @@ def parse_price(v):
 class _Page(html.parser.HTMLParser):
     def __init__(self):
         super().__init__(convert_charrefs=True)
-        self.ld, self.meta, self.itemprop, self.title = [], {}, [], ""
+        self.ld, self.blobs, self.meta, self.itemprop, self.title = [], [], {}, [], ""
         self._script = self._title = False
+        self._kind = "ld"
         self._buf = []
 
     def handle_starttag(self, tag, attrs):
         a = {k.lower(): (v or "") for k, v in attrs}
-        if tag == "script" and "ld+json" in a.get("type", "").lower():
-            self._script, self._buf = True, []
+        t = a.get("type", "").lower()
+        if tag == "script" and "ld+json" in t:
+            self._script, self._kind, self._buf = True, "ld", []
+        elif tag == "script" and (a.get("id") == "__NEXT_DATA__" or t in ("application/json", "text/json")):
+            self._script, self._kind, self._buf = True, "json", []
         elif tag == "title":
             self._title, self._buf = True, []
         elif tag == "meta":
@@ -177,7 +215,7 @@ class _Page(html.parser.HTMLParser):
 
     def handle_endtag(self, tag):
         if tag == "script" and self._script:
-            self.ld.append("".join(self._buf))
+            (self.ld if self._kind == "ld" else self.blobs).append("".join(self._buf))
             self._script = False
         elif tag == "title" and self._title:
             self.title = " ".join("".join(self._buf).split())
@@ -218,7 +256,65 @@ def _offer_price(offers):
     return None
 
 
-def extract_price(doc):
+ID_KEYS = ("usItemId", "itemId", "productId", "id", "sku", "us_item_id", "legacyItemId", "asin")
+
+
+def item_id_from_url(url):
+    """A product id found in the link (Walmart /ip/<name>/<number>, Amazon /dp/<ASIN>), lower-cased."""
+    path = urllib.parse.urlparse(url or "").path
+    m = re.search(r"/(?:dp|gp/product)/([A-Za-z0-9]{10})(?:[/?]|$)", path) or re.search(r"/(\d{5,})(?:[/?]|$)", path + "/")
+    return m.group(1).lower() if m else None
+
+
+def _money_in(v):
+    """(price, currency) from a number, a string like '$99.00', or {price|value|amount|priceString: ...}."""
+    if isinstance(v, dict):
+        cur = str(v.get("currencyUnit") or v.get("currency") or v.get("priceCurrency") or "").upper()
+        for k in ("price", "value", "amount", "priceValue", "priceString", "displayPrice"):
+            p = parse_price(v.get(k))
+            if p:
+                return p, cur
+        return None
+    p = parse_price(v)
+    return (p, "") if p else None
+
+
+def _price_of_product(node):
+    info = node.get("priceInfo")
+    cands = [info.get("currentPrice") if isinstance(info, dict) else None, node.get("currentPrice"),
+             node.get("offerPrice"), node.get("salePrice"), node.get("price")]
+    for c in cands:
+        r = _money_in(c)
+        if r:
+            return r
+    return None
+
+
+def _price_from_page_data(blobs, item_id):
+    """Price of the product whose id matches the link, found in the page's embedded JSON. Pages also carry
+    other products' prices (carousels, ads), so without an id match nothing is taken."""
+    if not item_id:
+        return None
+    stack = []
+    for text in blobs:
+        try:
+            stack.append(json.loads(text))
+        except ValueError:
+            continue
+    while stack:
+        node = stack.pop()
+        if isinstance(node, dict):
+            if any(str(node.get(k, "")).lower() == item_id for k in ID_KEYS):
+                r = _price_of_product(node)
+                if r:
+                    return r
+            stack.extend(v for v in node.values() if isinstance(v, (dict, list)))
+        elif isinstance(node, list):
+            stack.extend(v for v in node if isinstance(v, (dict, list)))
+    return None
+
+
+def extract_price(doc, url=""):
     """Returns {"price": float|None, "currency": str, "title": str, "source": str}."""
     page = _Page()
     try:
@@ -238,6 +334,9 @@ def extract_price(doc):
             if r:
                 return {"price": r[0], "currency": r[1], "title": str(prod.get("name") or title)[:200],
                         "source": "json-ld"}
+    found = _price_from_page_data(page.blobs, item_id_from_url(url))
+    if found:
+        return {"price": found[0], "currency": found[1], "title": title[:200], "source": "page-data"}
     cur = (page.meta.get("product:price:currency") or page.meta.get("og:price:currency")
            or page.meta.get("pricecurrency") or "").upper()
     for key in ("product:price:amount", "og:price:amount", "og:price", "twitter:data1"):
@@ -255,6 +354,8 @@ def extract_price(doc):
 
 def link_info(url, allow_private=False):
     final, doc = fetch_page(url, allow_private)
-    out = extract_price(doc)
+    out = extract_price(doc, final)
+    if out["price"] is None and looks_like_robot_check(doc):
+        raise LinkError(BLOCKED_MESSAGE)
     out.update(url=final, host=re.sub(r"^www\.", "", urllib.parse.urlparse(final).hostname or ""))
     return out

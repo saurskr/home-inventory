@@ -324,6 +324,34 @@ class ApiTest(ApiBase):
         self.call("PUT", "/api/items/%d" % it["id"], {"description": "z" * 301}, 400)
         self.call("PUT", "/api/items/%d" % it["id"], {"description": "short now"}, 200)
 
+    def test_purchase_and_replacement_dates_and_condition(self):
+        import datetime
+        h = self.home(); r = self.room(h["id"])
+        base = "/api/rooms/%d/items" % r["id"]
+        self.assertIn("Refurbished", self.call("GET", "/api/meta")["conditions"])
+        it = self.call("POST", base, {"name": "Pot", "purchased_value": 99, "purchased_date": "2025-11-29",
+                                      "purchased_condition": "New", "replacement_value": 109,
+                                      "replacement_date": "2026-01-15"}, 201)
+        self.assertEqual((it["purchased_date"], it["purchased_condition"], it["replacement_date"]),
+                         ("2025-11-29", "New", "2026-01-15"))                      # an explicit date wins over "now"
+        today = datetime.date.today().isoformat()
+        auto = self.call("PUT", "/api/items/%d" % it["id"], {"replacement_value": 120}, 200)
+        self.assertEqual(auto["replacement_date"], today)                           # changing the cost re-dates it
+        same = self.call("PUT", "/api/items/%d" % it["id"], {"name": "Pot 2"}, 200)
+        self.assertEqual(same["replacement_date"], today)                           # other edits leave it alone
+        hand = self.call("PUT", "/api/items/%d" % it["id"], {"replacement_value": 125, "replacement_date": "2026-02-02"}, 200)
+        self.assertEqual((hand["replacement_value"], hand["replacement_date"]), (125, "2026-02-02"))   # explicit beats auto
+        self.assertEqual(self.call("PUT", "/api/items/%d" % it["id"], {"replacement_date": ""}, 200)["replacement_date"], "2026-02-02")
+        plain = self.call("POST", base, {"name": "Plain"}, 201)
+        self.assertEqual((plain["purchased_date"], plain["purchased_condition"], plain["replacement_date"]), ("", "", ""))
+        for bad in ({"purchased_date": "03/01/2026"}, {"purchased_date": "2999-01-01"}, {"purchased_condition": "Mint"},
+                    {"replacement_date": "yesterday"}, {"replacement_date": "2999-01-01"}):
+            self.call("PUT", "/api/items/%d" % it["id"], bad, 400)
+            self.call("POST", base, dict(bad, name="bad"), 400)
+        self.assertEqual(self.call("PUT", "/api/items/%d" % it["id"], {"purchased_condition": ""}, 200)["purchased_condition"], "")
+        listed = {i["name"]: i for i in self.call("GET", base)}
+        self.assertEqual(listed["Pot 2"]["replacement_date"], "2026-02-02")          # list responses carry it too
+
     def test_migrates_old_database(self):
         import sqlite3
         d = tempfile.mkdtemp()
@@ -346,7 +374,8 @@ class ApiTest(ApiBase):
             conn.close()
             self.assertEqual((row["name"], row["price_updated_at"]), ("Old thing", None))
             conn = server.connect()
-            self.assertEqual(conn.execute("SELECT model_number FROM items").fetchone()["model_number"], "")
+            row2 = conn.execute("SELECT model_number, purchased_date, purchased_condition FROM items").fetchone()
+            self.assertEqual(tuple(row2), ("", "", ""))
             conn.close()
             conn = server.connect()
             home = dict(conn.execute("SELECT * FROM homes").fetchone())
@@ -586,6 +615,15 @@ PRODUCT_PAGE = ("<html><head><title>Mixer page</title><script type='application/
                 "</script></head><body>hi</body></html>")
 
 
+SYNTHETIC_NEXT_PAGE = ("<html><head><title>Instant Pot</title></head><body><script id=\"__NEXT_DATA__\" type=\"application/json\">"
+    + json.dumps({"props": {"pageProps": {"initialData": {"data": {
+        "product": {"usItemId": "45918917", "name": "Instant Pot", "priceInfo": {"currentPrice": {
+            "price": 99.0, "priceString": "$99.00", "currencyUnit": "USD"}}},
+        "contentLayout": {"modules": [{"products": [
+            {"usItemId": "11111111", "priceInfo": {"currentPrice": {"price": 5.0}}}]}]}}}}}})
+    + "</script></body></html>")
+
+
 class PageServer:
     """A pretend shop: /ok has a price, /meta uses og tags, /none has none, /redir and /bad redirect, /forbidden is 403."""
     def __init__(self):
@@ -602,6 +640,11 @@ class PageServer:
                 elif self.path == "/bad": code, loc = 302, "ftp://example.com/x"
                 elif self.path == "/forbidden": code = 403
                 elif self.path == "/img": ctype, body = "image/png", "x"
+                elif self.path.startswith("/ip/Instant-Pot/45918917"): body = SYNTHETIC_NEXT_PAGE
+                elif self.path.startswith("/ip/Other/22222222"): body = SYNTHETIC_NEXT_PAGE      # id not in the data
+                elif self.path == "/robot": body = "<html><title>Robot or human?</title><div id='px-captcha'>Press &amp; Hold</div></html>"
+                elif self.path == "/blocked412": code, body = 412, "<html><div id='px-captcha'></div>Robot or human?</html>"
+                elif self.path == "/blocked403": code, body = 403, "<html>Forbidden</html>"
                 elif self.path == "/big": body = "<p>" + "x" * 2_000_000 + "</p>" + PRODUCT_PAGE
                 else: code = 404
                 raw = body.encode()
@@ -658,6 +701,29 @@ class LinkPriceTest(ApiBase):
         self.assertIn("not a web page", self.call("POST", "/api/link-info", {"url": self.shop.url + "/bad"}, 400)["error"])
         for bad in ("javascript:alert(1)", "ftp://x.example/", "file:///etc/passwd", "not a url", ""):
             self.call("POST", "/api/link-info", {"url": bad}, 400)
+
+    def test_synthetic_embedded_product_data(self):
+        """A page that keeps its price in embedded JSON (shaped like Next.js __NEXT_DATA__); the data is made up."""
+        r = self.call("POST", "/api/link-info", {"url": self.shop.url + "/ip/Instant-Pot/45918917?classType=REGULAR"}, 200)
+        self.assertEqual((r["price"], r["currency"], r["source"]), (99.0, "USD", "page-data"))   # not the carousel's $5
+        # same page, but the link's product id is not in the data: another product's price must not be borrowed
+        r = self.call("POST", "/api/link-info", {"url": self.shop.url + "/ip/Other/22222222"}, 200)
+        self.assertIsNone(r["price"])
+
+    def test_robot_checks_are_reported_as_such(self):
+        for path in ("/robot", "/blocked412"):
+            e = self.call("POST", "/api/link-info", {"url": self.shop.url + path}, 502)
+            self.assertIn("robot check", e["error"], path)
+        e = self.call("POST", "/api/link-info", {"url": self.shop.url + "/blocked403"}, 502)
+        self.assertIn("did not allow", e["error"])
+
+    def test_item_id_from_url(self):
+        import linkinfo
+        f = linkinfo.item_id_from_url
+        self.assertEqual(f("https://www.walmart.com/ip/Instant-Pot-DUO60-6-Qt/45918917?classType=REGULAR&from=/search"), "45918917")
+        self.assertEqual(f("https://www.amazon.com/Some-Name/dp/B00FLYWNYQ/ref=sr_1_1"), "b00flywnyq")
+        self.assertEqual(f("https://shop.example/item/12345"), "12345")
+        self.assertIsNone(f("https://shop.example/about")); self.assertIsNone(f(""))
 
     def test_private_addresses_are_refused(self):
         server.ALLOW_PRIVATE_FETCH = False

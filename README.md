@@ -57,8 +57,8 @@ on writes (blocks cross-site form posts). Add more hosts with `INVENTORY_ALLOWED
 - Receipt reading lives in a standalone, reusable package: [`receipt_module/`](receipt_module/README.md).
 
 ## Item screen and editing
-Each item has: Name, Room, Type, Brand, Model #, Description (up to 250 characters), Purchased price, plus Replacement price and a link to a similar item.
-They are shown one per line in the details panel and in the edit form. The photo model fills in the Model # when it can read one off the item.
+Each item has: Name, Room, Type, Brand, Model #, Description (up to 250 characters), Purchased price, Purchased date, Purchased condition, Replacement cost, Replacement cost date (when the cost was last updated; set automatically when you change the cost, or by hand) and a Link to a similar item.
+They are shown one per line in the details panel, which ends with the Find similar button and the paste-a-link price reader, and in the edit form. Receipts fill in the purchased date. The photo model fills in the Model # when it can read one off the item.
 
 The room page is split 50/50: the item list on the left, item details on the right (photos beside the facts). The list shows **10 or 25 items per
 page** (your choice is remembered) with Prev / page numbers / Next; room totals always cover every item, not just the page. After you add or save an
@@ -78,11 +78,15 @@ store search you choose (Google Shopping, Amazon, Walmart, Target, Best Buy, eBa
 your computer, and only when you click. Price and condition filters are added to the address where the store supports them; I could not
 check every store's parameters, so treat them as a convenience.
 
-Paste a product link (in the pane, or into *Link to a similar item* in the form) and the app reads the page for its price
-(`POST /api/link-info`). It uses structured data the site publishes (JSON-LD, Open Graph / product meta tags) and never guesses from
-page text, so some sites return nothing, and many large retailers block automated reads or load prices with JavaScript; enter the price
-by hand then. USD prices are offered as the replacement value; other currencies are shown but not used. The page fetch refuses
-private/local addresses, re-checks every redirect, reads at most 1.5 MB and only HTML. It does not use a system proxy.
+Paste a product link (in the pane's *Paste a link* row, or into *Link to a similar item* in the form) and the app reads the page for its price (`POST /api/link-info`).
+It reads what the site publishes for browsers and search engines: JSON-LD, Open Graph / product meta tags, `itemprop="price"`, and the page's embedded product data
+(for example Next.js `__NEXT_DATA__`), where it only takes the price of the product whose id is in the link, never another product's. It never guesses from page text.
+Many large retailers (Walmart, Amazon ...) put a "robot check" in front of automated requests; the app detects that and says so instead of reporting "no price".
+USD prices are offered as the replacement cost; other currencies are shown but not used. The fetch uses a plain desktop-browser identity (override with `INVENTORY_FETCH_UA`),
+refuses private/local addresses, re-checks every redirect, reads at most 3 MB and only HTML, and does not use a system proxy.
+
+**Why a link gave no price?** Run the diagnostic on the same computer that runs the app: `python3 tools/check_link.py "<url>"` prints the HTTP status, whether a robot check
+came back, which price sources the page has, and what was found. Add `--save page.html` to keep what the site returned.
 
 ## Roadmap
 1. Compare candidate vision models on your own photos (small bake-off script).

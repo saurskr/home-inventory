@@ -25,6 +25,7 @@ ITEM_TYPES = ["Appliance", "Furniture", "Electronics", "Memorabilia",
               "Media", "Collectible", "Clothing"]
 RECEIPT_CATEGORIES = ITEM_TYPES + ["Consumable", "Other"]  # receipt lines are sorted into these
 SOURCES = ["manual", "template", "vision"]
+CONDITIONS = ["New", "Refurbished", "Used - like new", "Used - good", "Used - fair", "Used - poor"]
 DESCRIPTION_MAX = 250   # characters
 MODEL_MAX = 60
 
@@ -105,6 +106,8 @@ CREATE TABLE IF NOT EXISTS items (
   description TEXT NOT NULL DEFAULT '',
   brand TEXT NOT NULL DEFAULT '',
   model_number TEXT NOT NULL DEFAULT '',
+  purchased_date TEXT NOT NULL DEFAULT '',
+  purchased_condition TEXT NOT NULL DEFAULT '',
   purchased_value REAL NOT NULL DEFAULT 0,
   replacement_value REAL NOT NULL DEFAULT 0,
   similar_url TEXT NOT NULL DEFAULT '',
@@ -164,6 +167,9 @@ def init_storage():
         conn.execute("ALTER TABLE items ADD COLUMN price_updated_at TEXT")
     if "model_number" not in cols:  # items saved before the Model # field existed
         conn.execute("ALTER TABLE items ADD COLUMN model_number TEXT NOT NULL DEFAULT ''")
+    for col in ("purchased_date", "purchased_condition"):  # added later
+        if col not in cols:
+            conn.execute("ALTER TABLE items ADD COLUMN %s TEXT NOT NULL DEFAULT ''" % col)
     icols = [r["name"] for r in conn.execute("PRAGMA table_info(home_insurance)")]
     for col, ddl in (("website", "TEXT NOT NULL DEFAULT ''"), ("liability_coverage", "REAL"),
                      ("riders", "TEXT NOT NULL DEFAULT '[]'")):  # insurance tables from earlier versions
@@ -231,6 +237,33 @@ def description_field(body, current=None):
     return v
 
 
+def date_field(body, key):
+    """YYYY-MM-DD, not in the future; '' when empty."""
+    v = text(body, key)
+    if not v:
+        return ""
+    try:
+        d = datetime.datetime.strptime(v, "%Y-%m-%d").date()
+    except ValueError:
+        raise ApiError(400, "%s must be a date like 2026-03-01" % key)
+    if d > datetime.date.today():
+        raise ApiError(400, "%s cannot be in the future" % key)
+    return v
+
+
+def condition_field(body):
+    v = text(body, "purchased_condition")
+    if v and v not in CONDITIONS:
+        raise ApiError(400, "purchased_condition must be one of: " + ", ".join(CONDITIONS))
+    return v
+
+
+def item_out(r):
+    """replacement_date is the day the replacement cost was last updated (the date part of price_updated_at)."""
+    r["replacement_date"] = (r.get("price_updated_at") or "")[:10]
+    return r
+
+
 def model_field(body):
     v = text(body, "model_number")
     if len(v) > MODEL_MAX:
@@ -272,13 +305,13 @@ def get_or_404(conn, table, id_):
     r = one(conn, "SELECT * FROM %s WHERE id = ?" % table, (id_,))
     if not r:
         raise ApiError(404, "%s not found" % table[:-1])
-    return r
+    return item_out(r) if table == "items" else r
 
 
 # ---------- handlers ----------
 
 def meta(ctx):
-    return 200, {"item_types": ITEM_TYPES, "sources": SOURCES,
+    return 200, {"item_types": ITEM_TYPES, "conditions": CONDITIONS, "sources": SOURCES,
                  "us_states": [{"code": c, "name": n} for c, n in US_STATES],
                  "room_templates": {k: [{"name": n, "item_type": t} for n, t in v]
                                     for k, v in ROOM_TEMPLATES.items()}}
@@ -460,18 +493,19 @@ def insert_item(conn, room_id, b, source="manual"):
     purchased = money(b, "purchased_value")
     replacement = money(b, "replacement_value")
     # An explicitly entered replacement price counts as a price update.
-    stamp = now() if (replacement is not None or b.get("price_confirmed") is True) else None
+    rdate = date_field(b, "replacement_date")      # an explicit date wins over "now"
+    stamp = (rdate + "T00:00:00Z") if rdate else (now() if (replacement is not None or b.get("price_confirmed") is True) else None)
     purchased = purchased if purchased is not None else 0
     replacement = replacement if replacement is not None else purchased
     src = b.get("source", source)
     if src not in SOURCES:
         raise ApiError(400, "source must be one of: " + ", ".join(SOURCES))
     cur = conn.execute(
-        """INSERT INTO items (room_id, name, description, brand, model_number, purchased_value,
-           replacement_value, similar_url, item_type, source, price_updated_at)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+        """INSERT INTO items (room_id, name, description, brand, model_number, purchased_date,
+           purchased_condition, purchased_value, replacement_value, similar_url, item_type, source,
+           price_updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
         (room_id, text(b, "name", True), description_field(b), text(b, "brand"), model_field(b),
-         purchased, replacement, url_field(b, "similar_url"),
+         date_field(b, "purchased_date"), condition_field(b), purchased, replacement, url_field(b, "similar_url"),
          check_type(b.get("item_type")), src, stamp))
     conn.execute("UPDATE items SET inv_no = ? WHERE id = ?",
                  ("INV-%06d" % cur.lastrowid, cur.lastrowid))
@@ -480,9 +514,9 @@ def insert_item(conn, room_id, b, source="manual"):
 
 def list_items(ctx, room_id):
     get_or_404(ctx.db, "rooms", room_id)
-    return 200, rows(ctx.db.execute(
+    return 200, [item_out(r) for r in rows(ctx.db.execute(
         "SELECT * FROM items WHERE room_id = ? ORDER BY name COLLATE NOCASE, id",
-        (room_id,)))
+        (room_id,)))]
 
 
 def create_item(ctx, room_id):
@@ -509,6 +543,10 @@ def update_item(ctx, id_):
         f["description"] = description_field(b, cur["description"])
     if "model_number" in b:
         f["model_number"] = model_field(b)
+    if "purchased_date" in b:
+        f["purchased_date"] = date_field(b, "purchased_date")
+    if "purchased_condition" in b:
+        f["purchased_condition"] = condition_field(b)
     if "similar_url" in b:
         f["similar_url"] = url_field(b, "similar_url")
     if "item_type" in b:
@@ -524,6 +562,10 @@ def update_item(ctx, id_):
         f["replacement_value"] = new
     if b.get("price_confirmed") is True:
         f["price_updated_at"] = now()
+    if "replacement_date" in b:
+        rd = date_field(b, "replacement_date")      # set by hand; empty leaves it alone
+        if rd and rd != (f["price_updated_at"] or "")[:10]:
+            f["price_updated_at"] = rd + "T00:00:00Z"
     if "source" in b:
         if b["source"] not in SOURCES:
             raise ApiError(400, "invalid source")
@@ -534,10 +576,11 @@ def update_item(ctx, id_):
         get_or_404(ctx.db, "rooms", b["room_id"])
         f["room_id"] = b["room_id"]
     ctx.db.execute(
-        """UPDATE items SET name=?, description=?, brand=?, model_number=?, purchased_value=?,
-           replacement_value=?, similar_url=?, item_type=?, source=?, room_id=?,
-           price_updated_at=? WHERE id=?""",
-        (f["name"], f["description"], f["brand"], f["model_number"], f["purchased_value"],
+        """UPDATE items SET name=?, description=?, brand=?, model_number=?, purchased_date=?,
+           purchased_condition=?, purchased_value=?, replacement_value=?, similar_url=?, item_type=?,
+           source=?, room_id=?, price_updated_at=? WHERE id=?""",
+        (f["name"], f["description"], f["brand"], f["model_number"], f["purchased_date"],
+         f["purchased_condition"], f["purchased_value"],
          f["replacement_value"], f["similar_url"], f["item_type"], f["source"],
          f["room_id"], f["price_updated_at"], id_))
     ctx.db.commit()

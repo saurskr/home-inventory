@@ -151,9 +151,13 @@ dl.lim dd{margin:0;text-align:right;font-variant-numeric:tabular-nums}
 .pane dl{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;margin:0;font-size:14px}
 .pane dt{color:var(--muted)}
 .pane dd{margin:0;text-align:right;font-variant-numeric:tabular-nums}
-.pane dl.fields{grid-template-columns:auto minmax(0,1fr);gap:7px 16px;font-size:15px}
+.pane dl.fields{grid-template-columns:max-content minmax(0,1fr);gap:8px 16px;font-size:15px;align-items:start}
 .pane dl.fields dd{text-align:left;overflow-wrap:anywhere}
 .pane dl.fields dd.desc{white-space:pre-wrap;color:var(--text)}
+.pane dl.fields dd.blk{text-align:left}
+.pane dl.fields dd .field{margin:0}
+.pimgs{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+@container (max-width:439px){.pimgs{grid-template-columns:1fr}}
 .pane .desc{font-size:14px;color:var(--muted);white-space:pre-wrap}
 .pane .links a{word-break:break-all}
 .flags{display:flex;flex-direction:column;gap:4px;font-size:14px}
@@ -326,6 +330,7 @@ const safeUrl = u => /^https?:\/\/\S+$/i.test(u || "") ? u : null;
 const hostOf = u => { try { return new URL(u).hostname.replace(/^www\./, ""); } catch (e) { return u; } };
 
 /* ---------- inline form panel: opens at the top of the page, never as a popup ---------- */
+const ADD_ITEM_IN_DRAWER = true;  // false: Add item opens as a panel at the top of the page instead (tall with one field per line)
 const TRAY_VARIANT = "drawer";  // "drawer" (slides in from the right) | "grow" (widens out of the item panel) | "instant": see ds/components/tray
 let activeTray = null;
 const closeEditors = () => {
@@ -823,8 +828,8 @@ function wireFind(pane, item) {
 const readLink = async url => { try { return await api("POST", "/link-info", {url}); } catch (e) { return {error: e.message}; } };
 const usdPrice = i => i && i.price != null && (!i.currency || i.currency === "USD");
 function linkBlock() {
-  return `<div class="field"><label for="pl_url">Product link</label>
-    <input id="pl_url" type="url" placeholder="Paste a product link to read its price" autocomplete="off"></div>
+  return `<div class="field">
+    <input id="pl_url" type="url" aria-label="Product link" placeholder="Paste a product link to read its price" autocomplete="off"></div>
     <div class="sub idmsg" id="pl_msg" role="status"></div>`;
 }
 function wireLink(pane, item) {
@@ -858,42 +863,39 @@ function wireLink(pane, item) {
 function paneHtml(item, roomName = "") {
   if (!item) return `<div class="panel-head"><h2>Item</h2></div><div class="pane-body">
     <div class="ph-empty">No item selected</div>
-    <p class="muted" style="margin:0">Select an item in the list to see its photos, equivalent-item link and price status here.</p></div>`;
+    <p class="muted" style="margin:0">Select an item in the list to see its details, photos and equivalent-item link here.</p></div>`;
   const url = safeUrl(item.similar_url), ps = priceState(item);
   const photo = item.image
     ? `<a href="/images/${esc(item.image)}" target="_blank" rel="noopener"><img class="ph" src="/images/${esc(item.image)}" alt="Photo of ${esc(item.name)}"></a>`
     : `<div class="ph-empty">No photo</div>`;
   const sim = item.similar_image
-    ? `<a href="/images/${esc(item.similar_image)}" target="_blank" rel="noopener"><img class="ph sm" src="/images/${esc(item.similar_image)}" alt="Equivalent item for ${esc(item.name)}"></a>`
-    : `<div class="ph-empty sm">No image of an equivalent item</div>`;
-  const row = (label, value, cls = "") => `<dt>${label}</dt><dd class="${cls}">${value ? esc(value) : '<span class="muted">—</span>'}</dd>`;
+    ? `<a href="/images/${esc(item.similar_image)}" target="_blank" rel="noopener"><img class="ph" src="/images/${esc(item.similar_image)}" alt="Equivalent item for ${esc(item.name)}"></a>`
+    : `<div class="ph-empty">No image of an equivalent item</div>`;
+  const dash = '<span class="muted">—</span>';
+  const row = (label, value, cls = "") => `<dt>${label}</dt><dd class="${cls}">${value ? esc(value) : dash}</dd>`;
+  const rowHtml = (label, html, cls = "") => `<dt>${label}</dt><dd class="${cls}">${html}</dd>`;
   return `<div class="panel-head"><h2>Item</h2><div class="btns"><span class="sub">${esc(item.inv_no)}</span><button class="primary small" data-act="edit">Edit</button></div></div>
-    <div class="pane-body two">
-      <div class="ptitle"><dl class="fields">
-        <dt>Name</dt><dd><b>${esc(item.name)}</b></dd>
+    <div class="pane-body">
+      <dl class="fields">
+        ${rowHtml("Name", `<b>${esc(item.name)}</b>`)}
         ${row("Room", roomName)}
         ${row("Type", item.item_type)}
         ${row("Brand", item.brand)}
         ${row("Model #", item.model_number)}
         ${row("Description", item.description, "desc")}
         ${row("Purchased price", money(item.purchased_value))}
-        ${row("Replacement price", money(item.replacement_value))}
-        ${row("Price updated", item.price_updated_at ? fmtDate(item.price_updated_at) : "Never")}
-      </dl></div>
-      <div class="pcol">
-        ${photo}
-        <div class="btns"><button class="small" data-pick="photo">${item.image ? "Replace photo" : "Add photo"}</button></div>
-        <div><h4>Equivalent item</h4>${sim}
-          <div class="links" style="margin-top:6px">${url ? `<a href="${esc(url)}" target="_blank" rel="noopener noreferrer">${esc(hostOf(url))} ↗</a>` : '<span class="muted">No link yet</span>'}</div>
-          <div class="btns" style="margin-top:6px"><button class="small" data-pick="similar">${item.similar_image ? "Replace image" : "Add image"}</button></div></div>
-      </div>
-      <div class="pcol">
-        <div class="flags"><div>${icon("photo", item.image ? "yes" : "no", item.image ? LABELS.photo.yes : LABELS.photo.no)}<span>${item.image ? LABELS.photo.yes : LABELS.photo.no}</span></div>
-          <div>${icon("link", url ? "yes" : "no", url ? LABELS.link.yes : LABELS.link.no)}<span>${url ? LABELS.link.yes : LABELS.link.no}</span></div>
-          <div>${icon("price", ps, priceLabel(item))}<span>${esc(priceLabel(item))}</span></div></div>
-        <div class="btns"><button class="small" data-act="confirm">Mark price current</button></div>
-        <div>${findBlock(item)}</div>
-        <div>${linkBlock()}</div>
+        ${row("Purchased date", fmtYmd(item.purchased_date))}
+        ${row("Purchased condition", item.purchased_condition)}
+        ${row("Replacement cost", money(item.replacement_value))}
+        ${rowHtml("Replacement cost date", `${icon("price", ps, priceLabel(item))} ${item.replacement_date ? esc(fmtYmd(item.replacement_date)) : "Never updated"}
+          <button type="button" class="small" data-act="confirm" title="Say the cost is up to date as of today">Mark current</button>`)}
+        ${rowHtml("Link to similar item", url ? `<a href="${esc(url)}" target="_blank" rel="noopener noreferrer">${esc(hostOf(url))} ↗</a>` : '<span class="muted">No link yet</span>')}
+        ${rowHtml("Find similar", findBlock(item), "blk")}
+        ${rowHtml("Paste a link", linkBlock(), "blk")}
+      </dl>
+      <div class="pimgs">
+        <div>${photo}<div class="btns" style="margin-top:6px"><button class="small" data-pick="photo">${item.image ? "Replace photo" : "Add photo"}</button></div></div>
+        <div><h4>Equivalent item</h4>${sim}<div class="btns" style="margin-top:6px"><button class="small" data-pick="similar">${item.similar_image ? "Replace image" : "Add image"}</button></div></div>
       </div>
     </div>`;
 }
@@ -1030,26 +1032,38 @@ async function itemForm(room, item) {
         <textarea id="f_description" name="description" rows="3" maxlength="250">${esc(item?.description)}</textarea>
         <div class="sub" id="descCount" aria-live="polite"></div></div>
       ${field("purchased_value", "Purchased price ($)", item?.purchased_value ?? "", 'type="number" min="0" step="0.01"')}
-      ${field("replacement_value", "Replacement price ($)", item?.replacement_value ?? "", 'type="number" min="0" step="0.01" placeholder="same as purchased"')}
+      ${field("purchased_date", "Purchased date", item?.purchased_date, `type="date" max="${new Date().toISOString().slice(0, 10)}"`)}
+      ${select("purchased_condition", "Purchased condition", (META.conditions || []).map(c => [c, c]), item?.purchased_condition, "— choose —")}
+      ${field("replacement_value", "Replacement cost ($)", item?.replacement_value ?? "", 'type="number" min="0" step="0.01" placeholder="same as purchased"')}
+      ${field("replacement_date", "Replacement cost date", item?.replacement_date, `type="date" max="${new Date().toISOString().slice(0, 10)}"`)}
+      <div class="sub" style="margin-top:-6px">Set automatically when you change the cost; edit it to record an earlier date.</div>
       <div>${field("similar_url", "Link to a similar item", item?.similar_url, 'type="url" placeholder="Paste a product link to read its price"')}
         <div class="sub idmsg" id="linkMsg" role="status"></div></div>
     </div></div>`;
   const d = form(item ? `Edit ${item.inv_no}` : "Add item", html, async f => {
     const b = {name: val(f, "name"), brand: val(f, "brand"), model_number: val(f, "model_number"), item_type: val(f, "item_type"),
       description: val(f, "description"), similar_url: val(f, "similar_url"),
-      purchased_value: val(f, "purchased_value"), replacement_value: val(f, "replacement_value")};
+      purchased_value: val(f, "purchased_value"), purchased_date: val(f, "purchased_date"), purchased_condition: val(f, "purchased_condition"),
+      replacement_value: val(f, "replacement_value")};
+    const rd = val(f, "replacement_date");
+    if (rd !== (item?.replacement_date || "")) b.replacement_date = rd;   // only when changed: otherwise the server dates a cost change itself
     const roomId = +val(f, "room_id");
     if (item) b.room_id = roomId; else if (identified) b.source = "vision";
     const saved = item ? await api("PUT", "/items/" + item.id, b) : await api("POST", `/rooms/${roomId}/items`, b);
     for (const k of ["photo", "similar"])
       if (imgs[k]) await api("POST", `/items/${saved.id}/image?kind=${k}`, {data: imgs[k]});
     sel.item = saved.id; toast("Item saved"); await closeTray(); route();
-  }, {wide: true, tray: !!item, width: 720, confirmClose: () => !baseline || snap() === baseline || confirm("Discard your changes?")});
+  }, {wide: true, tray: !!item || ADD_ITEM_IN_DRAWER, width: 720, confirmClose: () => !baseline || snap() === baseline || confirm("Discard your changes?")});
   const snap = () => [...$("form", d).elements].filter(e => e.name && e.type !== "file").map(e => e.value).join("\u0001") + "|" + !!imgs.photo + !!imgs.similar;
   const baseline = snap();  // unsaved-changes check for the tray
   const descEl = d.querySelector("#f_description"), count = $("#descCount", d);
   const showCount = () => { count.textContent = `${descEl.value.length} / 250`; count.classList.toggle("err-text", descEl.value.length > 250); };
   descEl.addEventListener("input", showCount); showCount();
+  const rdEl = d.querySelector("#f_replacement_date"), rvEl = d.querySelector("#f_replacement_value");
+  let dateTouched = false;
+  const today = new Date().toISOString().slice(0, 10);
+  rdEl.addEventListener("input", () => { dateTouched = true; });
+  rvEl.addEventListener("input", () => { if (!dateTouched) rdEl.value = today; });   // a changed cost is dated today unless you set a date
 
   /* photo: choose or drop; the model runs automatically on a new item */
   const photoInp = d.querySelector('input[data-kind="photo"]'), drop = $("#drop", d), box = $("#photoBox", d);
@@ -1123,12 +1137,12 @@ async function itemForm(room, item) {
         : "No price was found on that page. Enter it by hand."); return;
     }
     if (!repl.value.trim()) {
-      repl.value = info.price.toFixed(2);
-      setStatus(linkMsg, `Replacement price filled in from ${info.host}: ${money(info.price)}. Check it.`, "ok");
+      repl.value = info.price.toFixed(2); repl.dispatchEvent(new Event("input"));
+      setStatus(linkMsg, `Replacement cost filled in from ${info.host}: ${money(info.price)}. Check it.`, "ok");
     } else {
       linkMsg.className = "sub idmsg";
-      linkMsg.innerHTML = `Found ${money(info.price)} on ${esc(info.host)}. <button type="button" class="small" id="useLinkPrice">Use as replacement price</button>`;
-      $("#useLinkPrice", d).onclick = () => { repl.value = info.price.toFixed(2); setStatus(linkMsg, "Replacement price updated.", "ok"); };
+      linkMsg.innerHTML = `Found ${money(info.price)} on ${esc(info.host)}. <button type="button" class="small" id="useLinkPrice">Use as replacement cost</button>`;
+      $("#useLinkPrice", d).onclick = () => { repl.value = info.price.toFixed(2); repl.dispatchEvent(new Event("input")); setStatus(linkMsg, "Replacement cost updated.", "ok"); };
     }
   }
   linkInp.addEventListener("paste", () => setTimeout(lookupLink, 0));
@@ -1228,7 +1242,8 @@ async function batchForm(room) {
         const r = await api("POST", "/receipt", {data: await downscale(url, 1800), provider});
         receipts[e.id] = r;
         r.items.forEach(it => cands.push({entry: e.id, kind: "receipt", name: it.description, brand: "", item_type: itemTypes.includes(it.category) ? it.category : "",
-          qty: it.quantity, price: it.unit_price ?? "", description: `From receipt: ${[r.store, r.date].filter(Boolean).join(" · ")}`,
+          qty: it.quantity, price: it.unit_price ?? "", purchased_date: (r.date && r.date <= new Date().toISOString().slice(0, 10)) ? r.date : "",
+          description: `From receipt: ${[r.store, r.date].filter(Boolean).join(" · ")}`,
           checked: itemTypes.includes(it.category), photo: null, thumb: ""}));
         set(`Receipt${r.store ? " from " + r.store : ""}: ${r.items.length} line${r.items.length === 1 ? "" : "s"} found`, "done");
       } else if (kind === "item") {
@@ -1293,7 +1308,7 @@ async function batchForm(room) {
           for (let k = 0; k < qty; k++) {
             setStatus(msg, `Saving ${made + 1}…`, "busy");
             const it = await api("POST", `/rooms/${room.id}/items`, {name: c.name.trim(), brand: (c.brand || "").trim(), item_type: c.item_type,
-              description: c.description || "", model_number: c.model_number || "", purchased_value: c.price === "" ? "" : c.price, source: "vision"});
+              description: c.description || "", model_number: c.model_number || "", purchased_date: c.purchased_date || "", purchased_value: c.price === "" ? "" : c.price, source: "vision"});
             if (c.photo && k === 0) await api("POST", `/items/${it.id}/image?kind=photo`, {data: await downscale(c.photo, 1600)});
             made++;
           }
