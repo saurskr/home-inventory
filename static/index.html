@@ -110,6 +110,25 @@ table.rv td:nth-child(2) input{width:calc(100% - 40px);min-width:160px}
   padding:8px 16px;border-radius:999px;opacity:0;transition:opacity .2s;pointer-events:none;z-index:60}
 .toast.show{opacity:1}
 .top h1{font-size:19px}
+/* top navigation (replaces the old side bar) */
+.shell{display:block;min-height:100vh}
+.topnav{display:flex;align-items:center;gap:8px;height:48px;padding:0 16px;background:var(--head);color:var(--head-text);position:sticky;top:0;z-index:30}
+.topnav .brand{padding:0 12px 0 0;font-size:18px;font-weight:700;white-space:nowrap;color:inherit;text-decoration:none}
+.topnav nav{display:flex;flex-direction:row;gap:2px;flex:1;min-width:0;overflow-x:auto;scrollbar-width:none;align-self:stretch;align-items:center}
+.topnav nav::-webkit-scrollbar{display:none}
+.topnav nav a{flex:none;white-space:nowrap;padding:6px 12px;border-radius:var(--r-sm);color:inherit;text-decoration:none;opacity:.85}
+.topnav nav a:hover{opacity:1;background:color-mix(in srgb,var(--head-text) 12%,transparent)}
+.topnav nav a[aria-current="page"]{opacity:1;font-weight:600;background:color-mix(in srgb,var(--head-text) 20%,transparent)}
+.topnav .who{font-size:12px;line-height:1.25;opacity:.8;white-space:nowrap}.topnav .who small{display:block;opacity:.8}
+.subnav{display:flex;gap:6px;align-items:center;padding:8px 16px;overflow-x:auto;scrollbar-width:none;background:var(--surface-2);border-bottom:1px solid var(--line)}
+.subnav[hidden]{display:none}
+.subnav::-webkit-scrollbar{display:none}
+.subnav .sub-label{flex:none;font-size:13px;color:var(--muted);padding-right:4px;white-space:nowrap}
+.subnav a{flex:none;white-space:nowrap;padding:4px 14px;border:1px solid var(--line);border-radius:999px;background:var(--surface);color:var(--text);text-decoration:none;font-size:14px}
+.subnav a:hover{border-color:var(--accent)}
+.subnav a[aria-current="true"]{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
+.top{top:48px}
+@media(max-width:700px){.topnav{padding:0 10px}.topnav .brand{font-size:16px;padding-right:6px}.topnav .who{display:none}.top{position:static}.subnav{padding:8px 10px}}
 .top{flex-wrap:wrap}.top-actions{flex-wrap:wrap;justify-content:flex-end}
 @media(max-width:700px){.top-actions{width:100%;justify-content:flex-start}}
 /* actions row directly under the header */
@@ -145,7 +164,7 @@ dl.lim dd{margin:0;text-align:right;font-variant-numeric:tabular-nums}
 /* two-pane room layout: item pane on the left, list on the right */
 .split{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px;align-items:start}
 .split>section{order:-1}
-.pane{position:sticky;top:72px;container-type:inline-size;max-height:calc(100vh - 88px);overflow:auto}
+.pane{position:sticky;top:120px;container-type:inline-size;max-height:calc(100vh - 136px);overflow:auto}
 .pane-body.two{display:grid;grid-template-columns:minmax(0,1fr);gap:12px 16px}
 .pane-body .pcol{display:flex;flex-direction:column;gap:12px;min-width:0}
 .pane-body .ptitle{grid-column:1/-1}
@@ -250,11 +269,12 @@ html[data-density="compact"] td .btns button{padding:0 8px}
 </head>
 <body>
 <div class="shell">
-  <aside class="side">
-    <div class="brand">Home Inventory</div>
+  <header class="topnav">
+    <a class="brand" href="#/">Home Inventory</a>
     <nav aria-label="Homes" id="nav"></nav>
-    <div class="side-foot"><div class="who" id="whereSaved">Saved on this computer<small>No account, no cloud</small></div></div>
-  </aside>
+    <div class="who" id="whereSaved">Saved on this computer<small>No account, no cloud</small></div>
+  </header>
+  <div class="subnav" id="subnav" aria-label="Rooms" hidden></div>
   <div class="content">
     <header class="top"><h1 id="title">Homes</h1>
       <div class="top-actions">
@@ -431,21 +451,18 @@ const val = (f, n) => f.elements[n].value;
 const app = $("#app");
 async function buildNav(homeId, roomId, settings = false) {
   const homes = await api("GET", "/homes");
-  const rooms = await Promise.all(homes.map(h => api("GET", `/homes/${h.id}/rooms`)));
-  $("#nav").innerHTML = `<a href="#/" ${homeId == null && !settings ? 'aria-current="page"' : ""}>All homes</a><hr>` +
-    homes.map((h, i) => {
-      const open = h.id === homeId;
-      return `<div class="nav-group"><div class="nav-row">
-        <a href="#/home/${h.id}" ${open && roomId == null ? 'aria-current="page"' : ""}>${esc(h.name)}<span class="nav-count">${rooms[i].length}</span></a>
-        <button class="nav-toggle" type="button" aria-expanded="${open}" aria-label="Toggle ${esc(h.name)} rooms"><span aria-hidden="true">▸</span></button></div>
-        <ul class="nav-items" ${open ? "" : "hidden"}>${rooms[i].length ? rooms[i].map(r =>
-          `<li><a class="nav-item" href="#/room/${r.id}" ${r.id === roomId ? 'aria-current="true"' : ""}><span class="nm">${esc(r.name)}</span></a></li>`).join("")
-          : '<li class="nav-empty">No rooms yet</li>'}</ul></div>`;
-    }).join("") + `<hr><a href="#/settings" ${settings ? 'aria-current="page"' : ""}>Settings</a>`;
-  $("#nav").querySelectorAll(".nav-toggle").forEach(b => b.onclick = () => {
-    const ul = b.closest(".nav-group").querySelector(".nav-items");
-    ul.hidden = !ul.hidden; b.setAttribute("aria-expanded", String(!ul.hidden));
-  });
+  const open = homes.find(h => h.id === homeId);
+  const rooms = open ? await api("GET", `/homes/${open.id}/rooms`) : [];
+  const cur = on => on ? ' aria-current="page"' : "";
+  $("#nav").innerHTML = `<a href="#/"${cur(homeId == null && !settings)}>All homes</a>` +
+    homes.map(h => `<a href="#/home/${h.id}"${cur(h.id === homeId)}>${esc(h.name)}</a>`).join("") +
+    `<a href="#/settings"${cur(settings)}>Settings</a>`;
+  const sub = $("#subnav");
+  sub.hidden = !open;
+  sub.innerHTML = open ? `<span class="sub-label">${esc(open.name)} rooms</span>` +
+    (rooms.length ? rooms.map(r => `<a class="nav-item" href="#/room/${r.id}"${r.id === roomId ? ' aria-current="true"' : ""}>${esc(r.name)}</a>`).join("")
+      : '<span class="sub-label">No rooms yet</span>') : "";
+  const on = $("#nav [aria-current]"); if (on && on.scrollIntoView) on.scrollIntoView({block: "nearest", inline: "center"});
 }
 const ICONS = {
   plus: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3v10M3 8h10"/></svg>',
