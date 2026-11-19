@@ -1343,7 +1343,8 @@ class Handler(BaseHTTPRequestHandler):
             rel = "index.html" if parsed.path == "/" else parsed.path.lstrip("/")
             return self.serve_file(STATIC_DIR, rel, {
                 "html": "text/html; charset=utf-8", "js": "text/javascript",
-                "css": "text/css", "json": "application/json", "svg": "image/svg+xml"})
+                "css": "text/css", "json": "application/json", "svg": "image/svg+xml",
+                "png": "image/png", "webmanifest": "application/manifest+json"})
         except ApiError as e:
             self.send_json(e.status, {"error": e.message})
         except Exception as e:  # keep the server alive on bugs

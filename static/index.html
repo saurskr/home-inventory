@@ -45,6 +45,9 @@ th{font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--mute
 .tray .err:empty{display:none}
 .idmsg.err{color:var(--red);font-weight:600}
 /* toolbar buttons */
+.demo-bar{background:var(--amber-bg,#fff3cd);color:var(--text);border-bottom:1px solid var(--amber,#b7791f);padding:6px 24px;font-size:14px;display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+.demo-bar[hidden]{display:none}.demo-bar button{padding:2px 10px;font-size:13px}
+.welcome{display:grid;gap:14px;max-width:640px}.welcome h2{margin:0}.welcome .btns{gap:10px}
 .top-add{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 .top-add .add{display:inline-flex;align-items:center;gap:6px;padding:5px 12px;font-size:14px;font-weight:600;text-decoration:none;cursor:pointer}
 .top-add .add[hidden]{display:none}
@@ -240,13 +243,17 @@ html[data-density="compact"] td .btns button{padding:0 8px}
 @media(max-width:1000px){.split{grid-template-columns:1fr}.split>section{order:0}.pane{position:static}.ins-grid{grid-template-columns:1fr 1fr}}
 @media(max-width:560px){.th-txt{display:none}.two,.ins-grid,.addr3{grid-template-columns:1fr}.rider{grid-template-columns:minmax(0,1fr) 100px auto}.top{padding:10px 14px}main{padding:12px 14px 50px}}
 </style>
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#0f4c4c">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
 </head>
 <body>
 <div class="shell">
   <aside class="side">
     <div class="brand">Home Inventory</div>
     <nav aria-label="Homes" id="nav"></nav>
-    <div class="side-foot"><div class="who">Saved on this computer<small>No account, no cloud</small></div></div>
+    <div class="side-foot"><div class="who" id="whereSaved">Saved on this computer<small>No account, no cloud</small></div></div>
   </aside>
   <div class="content">
     <header class="top"><h1 id="title">Homes</h1>
@@ -255,6 +262,7 @@ html[data-density="compact"] td .btns button{padding:0 8px}
         <div class="seg" role="group" aria-label="List density">
           <button type="button" data-d="comfortable">Comfortable</button><button type="button" data-d="compact">Compact</button></div>
         <button id="theme" class="themebtn" type="button"></button></div></header>
+    <div id="demoBar" class="demo-bar" hidden></div>
     <main id="app"></main>
   </div>
 </div>
@@ -267,7 +275,14 @@ const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt
 const money = n => Number(n || 0).toLocaleString(undefined, {style:"currency", currency:"USD"});
 let META = {item_types: [], room_templates: {}};
 
+/* Two ways to run: with the Python server ("server"), or entirely in this browser ("local": GitHub Pages, an installed phone app). */
+let MODE = "server", LOCAL = null;
+const imgSrc = name => MODE === "local" ? (LOCAL.imageUrl(name) || "") : "/images/" + name;
 async function api(method, path, body) {
+  if (MODE === "local") {
+    try { return await LOCAL.call(method, path, body); }
+    catch (e) { throw new Error(e.message); }
+  }
   const res = await fetch("/api" + path, {
     method, headers: {"Content-Type": "application/json"},
     body: body === undefined ? undefined : JSON.stringify(body)});
@@ -627,13 +642,36 @@ function showHomeEditor(h) {
 }
 
 /* ---------- views ---------- */
+function welcomeHtml() {
+  return `<section class="panel"><div class="pane-body welcome">
+    <h2>Welcome to Home Inventory</h2>
+    <p style="margin:0">Keep a record of what is in your home, what it cost and what it would cost to replace, with a PDF report for your insurer.</p>
+    <p class="muted" style="margin:0">Everything is saved in <b>this browser on this device</b>. There is no account and nothing is uploaded unless you choose to (photo reading with your own Claude key, or saving a report to your Google Drive).</p>
+    <div class="btns"><button class="primary" id="welcomeStart" type="button">Start with my own home</button><button id="welcomeDemo" type="button">Try the demo (sample home)</button></div>
+    <p class="muted" style="margin:0">The demo fills in a made-up home so you can look around. You can erase it in Settings at any time.</p></div></section>`;
+}
+async function loadDemo() {
+  try { await LOCAL.loadSample(); toast("Demo loaded"); showDemoBar(); location.hash = "#/"; route(); }
+  catch (e) { toast(e.message); }
+}
+function showDemoBar() {
+  const bar = $("#demoBar");
+  if (MODE !== "local" || !LOCAL.isDemo()) { bar.hidden = true; return; }
+  bar.hidden = false;
+  bar.innerHTML = `<span><b>Demo.</b> This is made-up sample data, saved only in this browser.</span><button type="button" id="demoErase">Erase the demo and start my own</button><button type="button" id="demoKeep">Keep this data</button>`;
+  $("#demoErase").onclick = async () => { if (!confirm("Erase all data in this browser?")) return; await LOCAL.eraseAll(); toast("Erased"); showDemoBar(); location.hash = "#/"; route(); };
+  $("#demoKeep").onclick = async () => { await LOCAL.clearDemoFlag(); showDemoBar(); };
+}
 async function homesView() {
   const homes = await api("GET", "/homes");
   await buildNav(null, null);
   chrome("Homes", "+ Add home", () => showHomeEditor(null));
   app.innerHTML = homes.length ? `<div class="grid homes">${homes.map(h =>
       `<div class="card tile hb" data-id="${h.id}">${homeBlock(h, false)}</div>`).join("")}</div>`
+    : MODE === "local" ? welcomeHtml()
     : `<div class="panel"><div class="empty">No homes yet. Use <b>+ Add home</b> above to start cataloging. Everything stays on this computer.</div></div>`;
+  const wd = $("#welcomeDemo"); if (wd) wd.onclick = async () => { wd.disabled = true; wd.textContent = "Loading…"; await loadDemo(); };
+  const ws = $("#welcomeStart"); if (ws) ws.onclick = () => showHomeEditor(null);
   app.querySelectorAll(".hb").forEach(el => {
     const h = homes.find(x => x.id == el.dataset.id);
     bindHome(el, h, {onOpen: () => { location.hash = "#/home/" + h.id; }, onEdit: () => showHomeEditor(h), onDelete: () => deleteHome(h)});
@@ -706,6 +744,34 @@ async function roomEditForm(r) {
 
 /* ---------- settings: local model + bring-your-own Claude key ---------- */
 const OLLAMA_MODELS = ["qwen2.5vl:7b", "qwen2.5vl:3b", "gemma3:4b"];
+function downloadBlob(blob, filename) {
+  const url = URL.createObjectURL(blob), a = document.createElement("a");
+  a.href = url; a.download = filename; document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 15000);
+}
+let installPrompt = null;
+window.addEventListener("beforeinstallprompt", e => { e.preventDefault(); installPrompt = e; });
+function wireDataPanel() {
+  const err = m => { $("#dErr").textContent = m || ""; };
+  $("#dExport").onclick = async () => {
+    try { const data = await LOCAL.exportAll(); downloadBlob(new Blob([JSON.stringify(data)], {type: "application/json"}), `home-inventory-backup-${new Date().toISOString().slice(0, 10)}.json`); toast("Backup downloaded"); }
+    catch (e) { err(e.message); }
+  };
+  $("#dImport").onclick = () => $("#dImportFile").click();
+  $("#dImportFile").onchange = async e => {
+    const f = e.target.files[0]; if (!f) return;
+    if (!confirm("Importing replaces everything currently saved in this browser. Continue?")) { e.target.value = ""; return; }
+    try { await LOCAL.importAll(JSON.parse(await f.text())); toast("Backup imported"); showDemoBar(); location.hash = "#/"; route(); }
+    catch (x) { err(x instanceof SyntaxError ? "That file is not valid JSON." : x.message); }
+  };
+  const smp = $("#dSample"); if (smp) smp.onclick = loadDemo;
+  $("#dErase").onclick = async () => { if (!confirm("Erase every home, item and photo saved in this browser? This cannot be undone.")) return; await LOCAL.eraseAll(); toast("Erased"); showDemoBar(); location.hash = "#/"; route(); };
+  const ins = $("#dInstall"); if (ins) ins.onclick = async () => { installPrompt.prompt(); await installPrompt.userChoice; installPrompt = null; route(); };
+  if (navigator.storage && navigator.storage.persist) navigator.storage.persisted().then(async ok => {
+    if (!ok) ok = await navigator.storage.persist();
+    $("#persistNote").textContent = ok ? "✔ The browser has agreed to keep this data (it will not be cleared to free space)." : "The browser may clear this data if the device runs low on space. Exporting a backup protects you.";
+  }).catch(() => {});
+}
 /* ---------- report: every item in a home, as a page, a PDF download, or a file in Google Drive ---------- */
 let reportOpts = {photos: false, hidePrice: false};
 try { Object.assign(reportOpts, JSON.parse(localStorage.getItem("reportOpts") || "{}")); } catch (e) {}
@@ -737,7 +803,7 @@ async function reportView(id) {
     $("#ro_preview").innerHTML = (data.rooms.length ? data.rooms.map(r => `<section class="panel"><div class="panel-head"><h2>${esc(r.name)}</h2>
       <span class="sub">${r.items.length} item${r.items.length === 1 ? "" : "s"} · replacement ${money(r.total_replacement)}</span></div>
       ${r.items.length ? `<div class="table-wrap"><table><thead><tr>${ph ? '<th aria-label="Photo"></th>' : ""}<th>Item</th><th>Details</th><th>Purchased</th><th class="num">Replacement</th></tr></thead><tbody>
-        ${r.items.map(i => `<tr>${ph ? `<td>${i.image ? `<img class="eq-thumb" src="/images/${esc(i.image)}" alt="">` : ""}</td>` : ""}
+        ${r.items.map(i => `<tr>${ph ? `<td>${i.image ? `<img class="eq-thumb" src="${esc(imgSrc(i.image))}" alt="">` : ""}</td>` : ""}
           <td><b>${esc(i.name)}</b><div class="sub">${esc([i.inv_no, i.item_type].filter(Boolean).join(" · "))}</div></td>
           <td>${esc([i.brand, i.model_number].filter(Boolean).join(" "))}<div class="sub">${esc(i.description)}</div></td>
           <td>${hide ? "" : esc(money(i.purchased_value)) + "<br>"}<span class="sub">${esc([fmtYmd(i.purchased_date), i.purchased_condition].filter(Boolean).join(" · "))}</span></td>
@@ -746,6 +812,12 @@ async function reportView(id) {
       : '<div class="panel"><div class="empty">This home has no rooms yet.</div></div>');
   };
   photosEl.onchange = priceEl.onchange = draw; draw();
+  $("#ro_pdf").onclick = async e => {
+    if (MODE !== "local") return;     // with the Python server the link downloads the file itself
+    e.preventDefault();
+    try { const r = await api("GET", `/homes/${id}/report.pdf?${qs()}`); downloadBlob(new Blob([r.bytes], {type: "application/pdf"}), r.filename); }
+    catch (err) { toast(err.message); }
+  };
   const drive = $("#ro_drive"), msg = $("#ro_msg");
   drive.onclick = async () => {
     drive.disabled = true; setStatus(msg, "Saving to Google Drive…", "busy");
@@ -764,7 +836,7 @@ async function settingsView() {
   chrome("Settings", null);
   const o = st.ollama;
   const note = !o.reachable
-    ? `<div class="cov gap"><span aria-hidden="true">⚠</span><div><b>Can't reach Ollama</b> at ${esc(o.url)}. Install it from ollama.com and start it, then reload this page.</div></div>`
+    ? `<div class="cov gap"><span aria-hidden="true">⚠</span><div><b>Can't reach Ollama</b> at ${esc(o.url)}. Install it from ollama.com and start it, then reload this page.${MODE === "local" ? " Ollama must run on this same device, and it has to allow this website: start it with <code>OLLAMA_ORIGINS=\"*\" ollama serve</code>. On a phone, use Claude below instead." : ""}</div></div>`
     : !o.model_installed
     ? `<div class="cov gap"><span aria-hidden="true">⚠</span><div><b>Ollama is running, but ${esc(o.model)} is not installed.</b> Pick an installed model below, or run <code>ollama pull ${esc(o.model)}</code> in a terminal and press Refresh.</div></div>`
     : (om.models.find(m => m.name === o.model || m.name === o.model + ":latest") || {}).vision === false
@@ -800,26 +872,39 @@ async function settingsView() {
   const redirect = location.origin + "/oauth/google";
   const googleHtml = `<section class="panel"><div class="panel-head"><h2>Google Drive</h2><span class="sub">optional · save reports to your own Drive</span></div>
       <form class="ins-body" id="setGoogle">
-        ${g.connected ? '<div class="cov ok"><span aria-hidden="true">✔</span><div><b>Connected.</b> Reports can be saved to a “Home Inventory” folder in your Drive. The app can only see files it creates.</div></div>'
+        ${g.connected ? '<div class="cov ok"><span aria-hidden="true">✔</span><div><b>${g.web ? "Ready." : "Connected."}</b> Reports can be saved to a “Home Inventory” folder in your Drive. The app can only see files it creates.</div></div>'
           : '<div class="cov"><span aria-hidden="true">ℹ</span><div>Not connected. You need your own free Google sign-in (client id and secret). Steps are below.</div></div>'}
         <div class="ins-grid">
           <div class="field" style="grid-column:span 2"><label for="g_id">Client id</label><input id="g_id" name="google_client_id" value="${esc(g.client_id || "")}" autocomplete="off" placeholder="1234-abc.apps.googleusercontent.com"></div>
-          <div class="field" style="grid-column:span 2"><label for="g_secret">Client secret</label><input id="g_secret" name="google_client_secret" type="password" autocomplete="off" placeholder="${g.secret_configured ? "Saved. Paste a new one to replace it" : "GOCSPX-…"}"></div>
+          ${g.web ? "" : `<div class="field" style="grid-column:span 2"><label for="g_secret">Client secret</label><input id="g_secret" name="google_client_secret" type="password" autocomplete="off" placeholder="${g.secret_configured ? "Saved. Paste a new one to replace it" : "GOCSPX-…"}"></div>`}
         </div>
         <div class="err" id="gErr" role="alert"></div>
         <div class="btns"><button class="primary" type="submit">Save</button>
-          <button type="button" id="gConnect" ${g.client_id && g.secret_configured ? "" : "disabled"}>${g.connected ? "Reconnect" : "Connect Google Drive"}</button>
+          <button type="button" id="gConnect" ${g.client_id && g.secret_configured ? "" : "disabled"} ${g.web ? 'hidden' : ""}>${g.connected ? "Reconnect" : "Connect Google Drive"}</button>
           ${g.connected ? '<button class="danger" type="button" id="gDisconnect">Disconnect</button>' : ""}</div>
         <details class="more"><summary>How to get a client id and secret</summary>
           <ol style="margin:8px 0 0;padding-left:20px;line-height:1.6">
             <li>Open <b>console.cloud.google.com</b>, create a project, then turn on the <b>Google Drive API</b> (APIs &amp; Services → Library).</li>
             <li>APIs &amp; Services → <b>OAuth consent screen</b>: choose External, fill in the app name and your email, and add your own Google account under <b>Test users</b>.</li>
-            <li>Credentials → <b>Create credentials → OAuth client ID</b> → type <b>Desktop app</b>. Copy the client id and secret here.</li>
+            ${g.web ? `<li>Credentials → <b>Create credentials → OAuth client ID</b> → type <b>Web application</b>. Under <b>Authorized JavaScript origins</b> add <code>${esc(location.origin)}</code>. Copy the client id here (no secret is needed).</li>
+            <li>Press <b>Save</b>. The first time you save a report, Google asks you to approve access. The app only asks for access to files it creates itself.</li>`
+            : `<li>Credentials → <b>Create credentials → OAuth client ID</b> → type <b>Desktop app</b>. Copy the client id and secret here.</li>
             <li>If you choose <i>Web application</i> instead, add this redirect address: <code>${esc(redirect)}</code></li>
-            <li>Press <b>Connect Google Drive</b> and approve. The app asks only for access to files it creates itself.</li>
-          </ol><p class="muted" style="margin:8px 0 0">The secret is kept in a file on this computer (owner-only) and is never shown again. While the consent screen is in “testing”, Google asks you to sign in again about every 7 days.</p></details>
+            <li>Press <b>Connect Google Drive</b> and approve. The app asks only for access to files it creates itself.</li>`}
+          </ol><p class="muted" style="margin:8px 0 0">${g.web ? "The client id is kept in this browser." : "The secret is kept in a file on this computer (owner-only) and is never shown again."} While the consent screen is in “testing”, Google asks you to sign in again about every 7 days.</p></details>
       </form></section>`;
-  app.innerHTML = catsHtml + googleHtml + `
+  const dataHtml = MODE !== "local" ? "" : `<section class="panel"><div class="panel-head"><h2>Your data</h2><span class="sub">saved in this browser on this device</span></div>
+      <div class="ins-body">
+        <div class="cov"><span aria-hidden="true">ℹ</span><div>Your homes, items and photos live only in this browser. Clearing the site's data, or uninstalling the app, erases them. <b>Export a backup now and then</b>, and use it to move your data to another device.</div></div>
+        <div id="persistNote" class="sub"></div>
+        <div class="btns"><button type="button" class="primary" id="dExport">Export backup (.json)</button>
+          <button type="button" id="dImport">Import backup…</button><input type="file" id="dImportFile" accept="application/json,.json" hidden>
+          ${LOCAL.isEmpty() ? '<button type="button" id="dSample">Load demo data</button>' : ""}
+          <button type="button" class="danger" id="dErase">Erase everything</button>
+          ${installPrompt ? '<button type="button" id="dInstall">Install as an app</button>' : ""}</div>
+        <div class="err" id="dErr" role="alert"></div>
+      </div></section>`;
+  app.innerHTML = dataHtml + catsHtml + googleHtml + `
     <section class="panel"><div class="panel-head"><h2>Local model (Ollama)</h2><span class="sub">default · free · photos stay on this computer</span></div>
       <form class="ins-body" id="setLocal">${note}
         <div class="ins-grid">
@@ -857,8 +942,9 @@ async function settingsView() {
     try { await api("PUT", "/settings", {ollama_model: b.dataset.useModel}); toast("Now using " + b.dataset.useModel); route(); }
     catch (err) { $("#locErr").textContent = err.message; }
   });
+  if (MODE === "local") wireDataPanel();
   $("#setGoogle").onsubmit = async e => { e.preventDefault(); const f = e.target, body = {google_client_id: f.elements.google_client_id.value};
-    if (f.elements.google_client_secret.value.trim()) body.google_client_secret = f.elements.google_client_secret.value;
+    if (f.elements.google_client_secret && f.elements.google_client_secret.value.trim()) body.google_client_secret = f.elements.google_client_secret.value;
     try { await api("PUT", "/settings", body); toast("Google settings saved"); route(); } catch (err) { $("#gErr").textContent = err.message; } };
   const gc = $("#gConnect");
   if (gc) gc.onclick = async () => {
@@ -872,7 +958,7 @@ async function settingsView() {
       }
     } catch (err) { $("#gErr").textContent = err.message; }
   };
-  const gd = $("#gDisconnect");
+  const gd = $("#gDisconnect");   // (in the browser version "connected" simply means a client id is saved)
   if (gd) gd.onclick = async () => { if (!confirm("Disconnect Google Drive? Files already saved stay in your Drive.")) return;
     await api("DELETE", "/google"); toast("Disconnected"); route(); };
   $("#addCat").onsubmit = async e => { e.preventDefault();
@@ -954,7 +1040,7 @@ function checkBlock(item) {
         <div class="field"><label for="fs_max">Max price ($)</label><input id="fs_max" type="number" min="0" step="1" placeholder="no limit"></div></div>
       <div class="stores">${Object.entries(STORES).map(([k, v]) => `<button type="button" class="small" data-store="${k}">${v[0]} ↗</button>`).join("")}</div>
       <div class="sub">Price limits apply on Google Shopping, Amazon, Walmart and eBay. Use the other stores' own filters.</div>
-      ${linkBlock()}
+      ${MODE === "server" ? linkBlock() : ""}
     </div>`;
 }
 function wireFind(pane, item) {
@@ -983,7 +1069,7 @@ function wireFind(pane, item) {
   };
   btn.onclick = () => {
     box.hidden = !box.hidden; btn.setAttribute("aria-expanded", String(!box.hidden));
-    if (!box.hidden) { if (url && !checked) { checked = true; readSaved(); } q.focus(); }
+    if (!box.hidden) { if (url && !checked && MODE === "server") { checked = true; readSaved(); } q.focus(); }
   };
   box.querySelectorAll("[data-store]").forEach(b => b.onclick = () =>
     window.open(storeUrl(b.dataset.store, opts()), "_blank", "noopener,noreferrer"));
@@ -1033,10 +1119,10 @@ function paneHtml(item, roomName = "") {
     <p class="muted" style="margin:0">Select an item in the list to see its details, photos and equivalent-item link here.</p></div>`;
   const url = safeUrl(item.similar_url), ps = priceState(item);
   const photo = item.image
-    ? `<a href="/images/${esc(item.image)}" target="_blank" rel="noopener"><img class="hero-img" src="/images/${esc(item.image)}" alt="Photo of ${esc(item.name)}"></a>`
+    ? `<a href="${esc(imgSrc(item.image))}" target="_blank" rel="noopener"><img class="hero-img" src="${esc(imgSrc(item.image))}" alt="Photo of ${esc(item.name)}"></a>`
     : `<div class="hero-img ph-empty">No photo</div>`;
   const sim = item.similar_image
-    ? `<a href="/images/${esc(item.similar_image)}" target="_blank" rel="noopener"><img class="eq-thumb" src="/images/${esc(item.similar_image)}" alt="Equivalent item for ${esc(item.name)}"></a>`
+    ? `<a href="${esc(imgSrc(item.similar_image))}" target="_blank" rel="noopener"><img class="eq-thumb" src="${esc(imgSrc(item.similar_image))}" alt="Equivalent item for ${esc(item.name)}"></a>`
     : `<span class="muted">${url ? "No picture yet" : "Add a link to get a picture"}</span>`;
   const dash = '<span class="muted">—</span>';
   const row = (label, value, cls = "") => `<dt>${label}</dt><dd class="${cls}">${value ? esc(value) : dash}</dd>`;
@@ -1070,7 +1156,7 @@ function paneHtml(item, roomName = "") {
       </dl></div>
       <div class="pimgs">
         <div><h4>Photo</h4><div class="btns"><button class="small" data-pick="photo">${item.image ? "Replace photo" : "Add photo"}</button></div></div>
-        <div><h4>Equivalent item</h4><div class="eq">${sim}<div class="btns">${url ? `<button class="small" data-act="pull" title="Take the product picture from the link">Pull from link</button>` : ""}<button class="small" data-pick="similar">${item.similar_image ? "Replace" : "Upload"}</button></div></div><div class="sub idmsg" id="pullMsg" role="status"></div></div>
+        <div><h4>Equivalent item</h4><div class="eq">${sim}<div class="btns">${url && MODE === "server" ? `<button class="small" data-act="pull" title="Take the product picture from the link">Pull from link</button>` : ""}<button class="small" data-pick="similar">${item.similar_image ? "Replace" : "Upload"}</button></div></div><div class="sub idmsg" id="pullMsg" role="status"></div></div>
       </div>
     </div>`;
 }
@@ -1146,7 +1232,7 @@ async function roomView(id) {
     wrap.innerHTML = `<div class="table-wrap"><table><thead><tr><th aria-label="Photo"></th><th>Item</th><th>Status</th>
       <th class="num">Purchased</th><th class="num">Replacement</th></tr></thead><tbody>
       ${rows.map(i => `<tr data-id="${i.id}" tabindex="0" aria-selected="${i.id === sel.item}" class="${i.id === sel.item ? "sel" : ""}">
-        <td>${i.image ? `<img class="thumb" src="/images/${esc(i.image)}" alt="">` : `<div class="thumb"></div>`}</td>
+        <td>${i.image ? `<img class="thumb" src="${esc(imgSrc(i.image))}" alt="">` : `<div class="thumb"></div>`}</td>
         <td class="itemcell"><b>${esc(i.name)}</b><div class="sub" title="${esc([i.brand, i.item_type, i.inv_no].filter(Boolean).join(" · "))}">${esc([i.brand, i.item_type, i.inv_no].filter(Boolean).join(" · "))}</div></td>
         <td>${itemIcons(i)}</td>
         <td class="num">${money(i.purchased_value)}</td><td class="num">${money(i.replacement_value)}</td></tr>`).join("")}
@@ -1178,7 +1264,7 @@ async function itemForm(room, item) {
   const [rooms, cfg] = await Promise.all([api("GET", `/homes/${room.home_id}/rooms`), api("GET", "/settings")]);
   const imgs = {photo: null, similar: null};
   let identified = false;
-  const have = item && item.image ? "/images/" + item.image : "";
+  const have = item && item.image ? imgSrc(item.image) : "";
   const model = cfg.ollama.model;
   const html = `<div class="item-layout">
     <div class="photo-col">
@@ -1199,7 +1285,7 @@ async function itemForm(room, item) {
       <div class="sub idmsg" id="idMsg" role="status">Add a photo and the model fills in the fields. You review before saving.</div>
       <details class="more"><summary>Equivalent item image (optional)</summary>
         <input id="f_img_similar" type="file" accept="image/*" data-kind="similar">
-        <img class="preview" data-prev="similar" ${item?.similar_image ? `src="/images/${esc(item.similar_image)}"` : "hidden"} alt=""></details>
+        <img class="preview" data-prev="similar" ${item?.similar_image ? `src="${esc(imgSrc(item.similar_image))}"` : "hidden"} alt=""></details>
     </div>
     <div class="item-grid">
       ${field("name", "Name", item?.name, "required")}
@@ -1289,7 +1375,7 @@ async function itemForm(room, item) {
   const photoData = async () => {
     if (imgs.photo) return imgs.photo;
     if (photoInp.files[0]) return readFile(photoInp.files[0]);  // chosen but still being read
-    if (item?.image) return readFile(await (await fetch("/images/" + item.image)).blob());
+    if (item?.image) return readFile(await (await fetch(imgSrc(item.image))).blob());
     return null;
   };
   const msgEl = $("#idMsg", d);
@@ -1530,7 +1616,36 @@ async function route() {
   }
 }
 window.addEventListener("hashchange", route);
-api("GET", "/meta").then(m => { META = m; }).finally(route);
+async function detectMode() {
+  if (/[?&]local=1\b/.test(location.search)) return "local";
+  try {
+    const r = await fetch("api/meta", {cache: "no-store"});
+    if (r.ok && (r.headers.get("content-type") || "").includes("json")) return "server";
+  } catch (e) { /* no server: run in the browser */ }
+  return "local";
+}
+async function startLocal() {
+  const [{createLocalApi}, {IdbStore}, {createBrowserDrive}] = await Promise.all([import("./local/api.js"), import("./local/store.js"), import("./local/drive.js")]);
+  LOCAL = createLocalApi({store: new IdbStore(), drive: createBrowserDrive()});
+  LOCAL.setImageMaker(demoPicture);
+  await LOCAL.init();
+  $("#whereSaved").innerHTML = "Saved in this browser<small>No account, no cloud</small>";
+  showDemoBar();
+  if ("serviceWorker" in navigator && location.protocol !== "file:") navigator.serviceWorker.register("sw.js").catch(() => {});
+}
+/* a simple coloured picture with an emoji for the demo items (drawn on a canvas, so no image files are needed) */
+async function demoPicture({label, color}) {
+  const c = document.createElement("canvas"); c.width = 480; c.height = 360; const g = c.getContext("2d");
+  const grad = g.createLinearGradient(0, 0, 480, 360); grad.addColorStop(0, color); grad.addColorStop(1, "#ffffff55"); g.fillStyle = color; g.fillRect(0, 0, 480, 360);
+  g.fillStyle = grad; g.fillRect(0, 0, 480, 360); g.font = "150px system-ui, 'Apple Color Emoji', 'Segoe UI Emoji', sans-serif"; g.textAlign = "center"; g.textBaseline = "middle"; g.fillText(label, 240, 190);
+  return c.toDataURL("image/jpeg", 0.8);
+}
+(async () => {
+  MODE = await detectMode();
+  try { if (MODE === "local") await startLocal(); META = await api("GET", "/meta"); }
+  catch (e) { app.innerHTML = `<div class="panel"><div class="empty">${esc(e.message)}</div></div>`; return; }
+  route();
+})();
 </script>
 </body>
 </html>
